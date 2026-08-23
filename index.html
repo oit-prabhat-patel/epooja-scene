@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ePooja Scene</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #120806; }
+    #app { position: fixed; inset: 0; }
+    canvas { display: block; touch-action: none; }
+    #vignette { position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(72% 62% at 50% 46%, rgba(0,0,0,0) 52%, rgba(0,0,0,0.6) 100%); }
+    #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+      color: #fff; font-family: -apple-system, Roboto, sans-serif; font-size: 14px; padding: 24px;
+      text-align: center; background: rgba(0,0,0,0.6); }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="vignette"></div>
+  <div id="err"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/loaders/DRACOLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/loaders/RGBELoader.js"></script>
+
+  <script>
+  //=====================================================================
+  // ePooja immersive scene — VISUALS ONLY. Flutter conducts: it sends
+  // loadMurti / addProps / cue / setOrbitEnabled / pause / resume, and this
+  // page posts back sceneReady / murtiProgress / murtiLoaded / propsLoaded /
+  // fpsReport / error. No audio, no clock — audio + choreography live in Flutter.
+  //=====================================================================
+  var HDR_URL = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/entrance_hall_2k.hdr';
+
+  var scene, camera, renderer, controls, clock, pmrem, gltfLoader;
+  var idol, halo, keyLight, spotLight, ambLight;
+  var diyas = [], flames = [], petals = [], flowerProto = null;
+  var showering = false, paused = false;
+  var frames = 0, _fpsT0 = 0, fpsReported = false, _lw = 0, _lh = 0;
+  var texFlameCore, texEmber, texGlow;
+
+  //--- bridge: outbound (native JS channel OR web postMessage to parent) ----
+  function send(type, payload){
+    var msg = { v:1, type:type }; if(payload) msg.payload = payload;
+    var s = JSON.stringify(msg);
+    try { if(window.AppWebBridge && window.AppWebBridge.postMessage){ window.AppWebBridge.postMessage(s); return; } } catch(e){}
+    try { if(window.parent && window.parent !== window){ window.parent.postMessage(s, '*'); } } catch(e){}
+  }
+  function fail(m){ var e=document.getElementById('err'); e.style.display='flex'; e.textContent='Scene error: '+m; send('error',{reason:String(m)}); }
+
+  //--- bridge: inbound. Native calls window.__appWebBridge.receive(jsonStr);
+  //    web delivers app→scene via a window 'message' event (from the parent).
+  function handleInbound(raw){
+    var msg; try { msg = JSON.parse(raw); } catch(e){ return; }
+    if(!msg || typeof msg.type !== 'string') return;
+    var p = msg.payload || {};
+    try{
+      switch(msg.type){
+        case 'loadMurti': loadMurti(p.murtiUrl); break;
+        case 'addProps': addProps(p.props || []); break;
+        case 'cue': onCue(p.propType, !!p.on); break;
+        case 'setOrbitEnabled': if(controls){ controls.enableRotate = !!p.enabled; controls.enableZoom = !!p.enabled; } break;
+        case 'pause': paused = true; break;
+        case 'resume': paused = false; break;
+        default: break;
+      }
+    }catch(err){ fail('command '+msg.type+' failed: '+(err&&err.message?err.message:err)); }
+  }
+  window.__appWebBridge = { receive: handleInbound };
+  window.addEventListener('message', function(e){ if(typeof e.data === 'string') handleInbound(e.data); });
+
+  //--- canvas textures (flame core, soft glow) ------------------------
+  function radialTex(stops, s){ s=s||64; var c=document.createElement('canvas'); c.width=c.height=s; var g=c.getContext('2d');
+    var grd=g.createRadialGradient(s/2,s/2,1,s/2,s/2,s/2); for(var i=0;i<stops.length;i++) grd.addColorStop(stops[i][0],stops[i][1]);
+    g.fillStyle=grd; g.fillRect(0,0,s,s); return new THREE.CanvasTexture(c); }
+  function flameTex(){ var c=document.createElement('canvas'); c.width=64; c.height=96; var g=c.getContext('2d');
+    var grd=g.createLinearGradient(32,92,32,4);
+    grd.addColorStop(0,'rgba(255,110,20,0)'); grd.addColorStop(0.16,'rgba(255,140,30,0.85)');
+    grd.addColorStop(0.46,'rgba(255,200,80,1)'); grd.addColorStop(0.74,'rgba(255,248,224,1)'); grd.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=grd; g.beginPath(); g.moveTo(32,3); g.bezierCurveTo(58,44,50,92,32,92); g.bezierCurveTo(14,92,6,44,32,3); g.fill();
+    return new THREE.CanvasTexture(c); }
+
+  function makeFlame(parent,x,y,z,size){
+    var glow=new THREE.Sprite(new THREE.SpriteMaterial({map:texEmber,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.5}));
+    glow.scale.set(size*3.4,size*3.4,1); glow.position.set(x,y+size*0.4,z); parent.add(glow);
+    var core=new THREE.Sprite(new THREE.SpriteMaterial({map:texFlameCore,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}));
+    core.center.set(0.5,0.0); core.scale.set(size,size*2.1,1); core.position.set(x,y,z); parent.add(core);
+    var f={core:core,glow:glow,x:x,base:size,seed:Math.random()*10}; flames.push(f); return f;
+  }
+  function updateFlames(t){
+    for(var i=0;i<flames.length;i++){ var f=flames[i];
+      var n=Math.sin(t*12+f.seed)*0.14+Math.sin(t*29+f.seed*1.7)*0.07;
+      f.core.scale.set(f.base*(1+n*0.5), f.base*2.1*(1+n), 1);
+      f.core.material.opacity=0.85+n; var g=f.base*3.4*(1+n*0.3); f.glow.scale.set(g,g,1); f.glow.material.opacity=0.38+Math.abs(n)*1.2;
+    }
+  }
+
+  //--- geometry helpers ----------------------------------------------
+  function fitInto(obj,size){ obj.updateMatrixWorld(true); var b=new THREE.Box3().setFromObject(obj); var s=b.getSize(new THREE.Vector3());
+    var md=Math.max(s.x,s.y,s.z)||1; obj.scale.setScalar(size/md); obj.updateMatrixWorld(true);
+    b=new THREE.Box3().setFromObject(obj); var c=b.getCenter(new THREE.Vector3()); obj.position.x-=c.x; obj.position.z-=c.z; obj.position.y-=b.min.y; }
+  function frameModel(obj){ obj.updateMatrixWorld(true); var box=new THREE.Box3().setFromObject(obj); var size=box.getSize(new THREE.Vector3());
+    var maxDim=Math.max(size.x,size.y,size.z)||1; obj.scale.setScalar(2.4/maxDim); obj.updateMatrixWorld(true);
+    box=new THREE.Box3().setFromObject(obj); var c=box.getCenter(new THREE.Vector3()); obj.position.x-=c.x; obj.position.z-=c.z; obj.position.y-=(box.min.y+0.95); }
+  function disposeObject(root){ root.traverse(function(o){ if(o.geometry&&o.geometry.dispose) o.geometry.dispose();
+    var m=o.material; if(m){ (Array.isArray(m)?m:[m]).forEach(function(mat){ for(var k in mat){ var v=mat[k]; if(v&&v.isTexture&&v.dispose) v.dispose(); } if(mat.dispose) mat.dispose(); }); } }); }
+
+  //--- commands -------------------------------------------------------
+  function loadMurti(url){
+    var eo=document.getElementById('err'); eo.style.display='none'; eo.textContent='';   // clear a prior error so a retry isn't hidden
+    if(!url){ fail('loadMurti: missing url'); return; }
+    gltfLoader.load(url, function(g){
+      if(idol){ scene.remove(idol); disposeObject(idol); }                                 // free the previous idol's GPU resources
+      idol=g.scene;
+      idol.traverse(function(o){ if(o.isMesh){ o.frustumCulled=false; var m=o.material; if(m){ (Array.isArray(m)?m:[m]).forEach(function(mat){ mat.envMapIntensity=1.15; }); } } });
+      frameModel(idol); scene.add(idol);
+      send('murtiLoaded');
+    }, function(xhr){ if(xhr && xhr.total){ send('murtiProgress',{pct:Math.round(xhr.loaded/xhr.total*100)}); } },
+       function(){ fail('murti load failed'); });
+  }
+
+  function addProps(props){
+    var pending = props.length; if(!pending){ send('propsLoaded'); return; }
+    var done = function(){ if(--pending<=0) send('propsLoaded'); };
+    for(var i=0;i<props.length;i++){ (function(prop){
+      if(!prop || !prop.url){ done(); return; }
+      gltfLoader.load(prop.url, function(g){
+        try{
+          if(prop.type==='lamp'){ placeDiyas(g.scene); }
+          else if(prop.type==='flower'){ flowerProto=g.scene; }
+        } finally { done(); }   // complete even if a handler throws, so propsLoaded can't hang
+      }, undefined, function(){ done(); }); // a prop that fails to load must not block the ritual
+    })(props[i]); }
+  }
+
+  // lamp → two lit hanging diyas flanking the murti, always lit (never off)
+  function placeDiyas(model){
+    var spots=[[-1.15,0.6],[1.15,0.6]];
+    for(var i=0;i<spots.length;i++){ var grp=new THREE.Group(); grp.position.set(spots[i][0],spots[i][1],0.2);
+      var m=model.clone(true); fitInto(m,0.45); grp.add(m);
+      var light=new THREE.PointLight(0xffa542,1.6,4); light.position.set(0,0.25,0.1); grp.add(light);
+      var bb=new THREE.Box3().setFromObject(m); makeFlame(grp,0,bb.max.y*0.9,0,0.06);
+      scene.add(grp); diyas.push({grp:grp,light:light,seed:Math.random()*10}); }
+  }
+  function updateDiyas(t){ for(var i=0;i<diyas.length;i++){ var d=diyas[i]; d.light.intensity=1.3+Math.sin(t*11+d.seed)*0.4+Math.sin(t*27+d.seed)*0.2; } }
+
+  function onCue(propType, on){
+    if(propType==='flower'){ showering = on; }
+    // lamp is placed lit on load and never extinguished; an explicit lamp/on is a no-op.
+  }
+
+  // flower shower — a small pool of falling clones of the flower prop GLB
+  function ensurePetalPool(){
+    if(petals.length || !flowerProto) return;
+    for(var i=0;i<16;i++){ var m=flowerProto.clone(true); fitInto(m,0.16); m.visible=false; scene.add(m);
+      petals.push({o:m,vy:0,sway:Math.random()*6.28,sp:0.5+Math.random(),spin:(Math.random()-0.5)*1.5}); }
+  }
+  function spawnPetal(){ for(var i=0;i<petals.length;i++){ var p=petals[i]; if(!p.o.visible){
+    p.o.position.set((Math.random()-0.5)*3.2,3.2+Math.random()*1.0,(Math.random()-0.5)*1.4);
+    p.vy=0.7+Math.random()*0.6; p.o.visible=true; return; } } }
+  function updatePetals(dt){ for(var i=0;i<petals.length;i++){ var p=petals[i]; if(!p.o.visible) continue;
+    p.sway+=dt*p.sp; p.o.position.y-=p.vy*dt; p.o.position.x+=Math.sin(p.sway)*dt*0.45; p.o.rotation.y+=p.spin*dt;
+    if(p.o.position.y<-2.6) p.o.visible=false; } }
+
+  //--- lifecycle ------------------------------------------------------
+  function init(){
+    if(typeof THREE==='undefined'){ fail('three.js failed to load'); return; }
+    try{
+      var app=document.getElementById('app');
+      renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+      renderer.setSize(window.innerWidth,window.innerHeight);
+      renderer.setClearColor(0x000000,0);
+      renderer.outputEncoding=THREE.sRGBEncoding; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=0.98;
+      app.appendChild(renderer.domElement);   // MANDATORY — without this the canvas renders off-DOM
+
+      scene=new THREE.Scene();
+      camera=new THREE.PerspectiveCamera(42,window.innerWidth/window.innerHeight,0.1,100);
+      camera.position.set(0,0.5,7.4);
+
+      try{ pmrem=new THREE.PMREMGenerator(renderer); pmrem.compileEquirectangularShader();
+        new THREE.RGBELoader().load(HDR_URL,function(hdr){ hdr.mapping=THREE.EquirectangularReflectionMapping;
+          scene.environment=pmrem.fromEquirectangular(hdr).texture; hdr.dispose(); }); }catch(e){}
+
+      ambLight=new THREE.AmbientLight(0xffe6c0,0.16); scene.add(ambLight);
+      keyLight=new THREE.DirectionalLight(0xffe0b0,0.6); keyLight.position.set(1.5,3.5,3); scene.add(keyLight);
+      var rim=new THREE.DirectionalLight(0xffcaa0,0.4); rim.position.set(-3,2,-2.5); scene.add(rim);
+      spotLight=new THREE.SpotLight(0xfff2d2,1.5,16,Math.PI*0.24,0.6,1.0); spotLight.position.set(0,4.6,3.6); spotLight.target.position.set(0,0.1,0); scene.add(spotLight); scene.add(spotLight.target);
+      var back=new THREE.DirectionalLight(0xffdca6,2.2); back.position.set(0,2.6,-4); scene.add(back);
+
+      texGlow=radialTex([[0,'rgba(255,214,140,0.95)'],[0.5,'rgba(255,160,60,0.28)'],[1,'rgba(255,140,40,0)']],128);
+      texEmber=radialTex([[0,'rgba(255,190,90,0.95)'],[0.4,'rgba(255,130,40,0.42)'],[1,'rgba(255,110,30,0)']]);
+      texFlameCore=flameTex();
+
+      halo=new THREE.Sprite(new THREE.SpriteMaterial({map:texGlow,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.7}));
+      halo.scale.set(5.6,5.6,1); halo.position.set(0,0.7,-1.8); scene.add(halo);
+
+      var base=new THREE.Mesh(new THREE.CylinderGeometry(1.15,1.35,0.35,48), new THREE.MeshStandardMaterial({color:0x4a2e18,metalness:0.1,roughness:0.85}));
+      base.position.y=-1.15; scene.add(base);
+      var prim=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,0.12,48), new THREE.MeshStandardMaterial({color:0xc79a44,metalness:0.5,roughness:0.35}));
+      prim.position.y=-0.95; scene.add(prim);
+
+      gltfLoader=new THREE.GLTFLoader();
+      try{ var _d=new THREE.DRACOLoader(); _d.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/'); gltfLoader.setDRACOLoader(_d); }catch(e){}
+
+      controls=new THREE.OrbitControls(camera,renderer.domElement);
+      controls.enableZoom=true; controls.minDistance=4.5; controls.maxDistance=9.5;   // pinch-zoom enabled (per design), bounded
+      controls.enablePan=false; controls.enableRotate=true; controls.enableDamping=true; controls.dampingFactor=0.08;
+      controls.autoRotate=false; controls.target.set(0,0.05,0);
+      controls.minPolarAngle=Math.PI*0.30; controls.maxPolarAngle=Math.PI*0.58;
+
+      window.addEventListener('resize',onResize);
+      clock=new THREE.Clock(); animate();
+      send('sceneReady');
+
+      // Standalone browser self-test: ?murti=<url> loads a model + starts a shower.
+      var q=new URLSearchParams(location.search); var mu=q.get('murti');
+      if(mu){ loadMurti(mu); showering=true; }
+    }catch(e){ fail(e&&e.message?e.message:e); }
+  }
+
+  function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); }
+
+  function animate(){
+    requestAnimationFrame(animate);
+    if(renderer && window.innerHeight>0 && (window.innerWidth!==_lw || window.innerHeight!==_lh)){ _lw=window.innerWidth; _lh=window.innerHeight; onResize(); }  // self-heal 0-size canvas
+    var dt=clock?Math.min(clock.getDelta(),0.05):0.016; var t=performance.now()*0.001;
+    if(!paused){
+      if(controls) controls.update();
+      if(idol) idol.rotation.y=-Math.PI/2+Math.sin(t*0.45)*0.2;   // front-facing gentle sway (per-model orientation may need tuning)
+      updateFlames(t); updateDiyas(t);
+      if(showering){ ensurePetalPool(); if(Math.random()<dt*24) spawnPetal(); }
+      updatePetals(dt);
+      if(halo) halo.material.rotation+=dt*0.04;
+    }
+    if(renderer&&scene&&camera) renderer.render(scene,camera);
+    if(!fpsReported){ if(!_fpsT0) _fpsT0=performance.now(); frames++; var _el=(performance.now()-_fpsT0)/1000; if(_el>2){ fpsReported=true; send('fpsReport',{avg:Math.round(frames/_el)}); } }
+  }
+
+  if(document.readyState!=='loading') setTimeout(init,0); else window.addEventListener('DOMContentLoaded',init);
+  </script>
+</body>
+</html>
