@@ -218,8 +218,8 @@
   // always lit (never off). The lamp GLB ships its own (static) flame — hide it
   // so we render exactly one animated flame per diya.
   function placeDiyas(model){
-    var spots=[[-0.88,0.78],[0.88,0.78]];   // [x, z] — flanking the pedestal base, kept fully on-screen (portrait FOV is narrow)
-    for(var i=0;i<spots.length;i++){ var grp=new THREE.Group(); grp.position.set(spots[i][0],-1.16,spots[i][1]);
+    var spots=[[-0.72,1.42],[0.72,1.42]];   // [x, z] — in FRONT of the pedestal (its base r≈1.35 so z must clear it, else they clip into it), still on-screen (portrait FOV is narrow)
+    for(var i=0;i<spots.length;i++){ var grp=new THREE.Group(); grp.position.set(spots[i][0],-1.2,spots[i][1]);
       var m=model.clone(true);
       m.traverse(function(o){ if(o.name && /flame|wick|fire|agni/i.test(o.name)) o.visible=false; }); // drop the GLB's own flame; we add one
       fitInto(m,0.46); grp.add(m);
