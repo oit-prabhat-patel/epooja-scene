@@ -38,6 +38,7 @@
   var scene, camera, renderer, controls, clock, pmrem, gltfLoader;
   var idol, halo, keyLight, spotLight, ambLight;
   var diyas = [], flames = [], petals = [], flowerProto = null;
+  var aartiLamp = null, aartiActive = false;
   var showering = false, paused = false;
   var frames = 0, _fpsT0 = 0, fpsReported = false, _lw = 0, _lh = 0;
   var texFlameCore, texEmber, texGlow;
@@ -129,7 +130,7 @@
       if(!prop || !prop.url){ done(); return; }
       gltfLoader.load(prop.url, function(g){
         try{
-          if(prop.type==='lamp'){ placeDiyas(g.scene); }
+          if(prop.type==='lamp'){ placeDiyas(g.scene); placeAarti(g.scene); }
           else if(prop.type==='flower'){ flowerProto=g.scene; }
         } finally { done(); }   // complete even if a handler throws, so propsLoaded can't hang
       }, undefined, function(){ done(); }); // a prop that fails to load must not block the ritual
@@ -147,9 +148,31 @@
   }
   function updateDiyas(t){ for(var i=0;i<diyas.length;i++){ var d=diyas[i]; d.light.intensity=1.3+Math.sin(t*11+d.seed)*0.4+Math.sin(t*27+d.seed)*0.2; } }
 
+  // lamp → also the aarti: a lit lamp/thali (same GLB) that circles the murti's
+  // face while the lamp cue is active. Hidden until the cue turns it on.
+  function placeAarti(model){
+    aartiLamp = new THREE.Group();
+    var m = model.clone(true); fitInto(m, 0.5); aartiLamp.add(m);
+    var light = new THREE.PointLight(0xffb050, 2.0, 5); light.position.set(0, 0.3, 0.15); aartiLamp.add(light);
+    var bb = new THREE.Box3().setFromObject(m); makeFlame(aartiLamp, 0, bb.max.y * 0.9, 0.05, 0.09);
+    aartiLamp.visible = false; scene.add(aartiLamp);
+  }
+  // slow, dignified clockwise circle in front of the deity's face.
+  function updateAarti(t){
+    if(!aartiLamp) return;
+    aartiLamp.visible = aartiActive;
+    if(!aartiActive) return;
+    var a = -t * 0.9;               // clockwise
+    var r = 0.95;
+    aartiLamp.position.set(Math.cos(a) * r, 0.55 + Math.sin(a) * r * 0.5, 1.15);
+    aartiLamp.rotation.y = Math.sin(t) * 0.3;
+  }
+
   function onCue(propType, on){
     if(propType==='flower'){ showering = on; }
-    // lamp is placed lit on load and never extinguished; an explicit lamp/on is a no-op.
+    // lamp stays lit (diyas, never extinguished) AND performs the aarti — the
+    // lamp/thali circles the murti while its cue is active.
+    if(propType==='lamp'){ aartiActive = on; }
   }
 
   // flower shower — a small pool of falling clones of the flower prop GLB
@@ -231,7 +254,7 @@
     if(!paused){
       if(controls) controls.update();
       if(idol) idol.rotation.y=-Math.PI/2+Math.sin(t*0.45)*0.2;   // front-facing gentle sway (per-model orientation may need tuning)
-      updateFlames(t); updateDiyas(t);
+      updateFlames(t); updateDiyas(t); updateAarti(t);
       if(showering){ ensurePetalPool(); if(Math.random()<dt*24) spawnPetal(); }
       updatePetals(dt);
       if(halo) halo.material.rotation+=dt*0.04;
