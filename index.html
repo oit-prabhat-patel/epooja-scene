@@ -253,7 +253,8 @@
     if(!flowerFallback) return;
     var tex=buildFlowerTexes();
     for(var j=0;j<26;j++){
-      var mat=new THREE.MeshBasicMaterial({map:tex[j%tex.length],transparent:true,alphaTest:0.35,side:THREE.DoubleSide});
+      // toneMapped:false so ACES doesn't wash the vivid marigold/rose toward pale
+      var mat=new THREE.MeshBasicMaterial({map:tex[j%tex.length],transparent:true,alphaTest:0.35,side:THREE.DoubleSide,toneMapped:false});
       var sz=0.38+Math.random()*0.12;   // slight size variety
       var pl=new THREE.Mesh(new THREE.PlaneGeometry(sz,sz),mat); pl.visible=false; scene.add(pl); petals.push(mkPetal(pl));
     }
