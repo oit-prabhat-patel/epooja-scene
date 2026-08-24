@@ -5,18 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>ePooja Scene</title>
   <style>
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #120806; }
-    #app { position: fixed; inset: 0; }
+    /* Warm saffron temple gradient (per Figma) — bright cream glow behind the
+       deity fading to rich marigold at the edges. NOT black. */
+    html, body { margin: 0; height: 100%; overflow: hidden;
+      background: radial-gradient(125% 95% at 50% 38%,
+        #fffaf0 0%, #ffe9c2 24%, #ffce80 48%, #f7ab46 74%, #ec9026 100%); }
+    #app { position: fixed; inset: 0; z-index: 1; }
     canvas { display: block; touch-action: none; }
-    #vignette { position: fixed; inset: 0; pointer-events: none;
-      background: radial-gradient(72% 62% at 50% 46%, rgba(0,0,0,0) 52%, rgba(0,0,0,0.6) 100%); }
+    /* Toran (temple doorway garland + hanging corner diyas) drawn to a canvas
+       and pinned across the top. pointer-events:none so orbit touches pass through. */
+    #toran { position: fixed; top: 0; left: 0; right: 0; height: 156px; z-index: 2;
+      pointer-events: none; background-repeat: no-repeat; background-position: top center;
+      background-size: 100% auto; }
+    #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 2;
+      background: radial-gradient(86% 76% at 50% 42%, rgba(0,0,0,0) 62%, rgba(150,70,15,0.16) 100%); }
     #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
       color: #fff; font-family: -apple-system, Roboto, sans-serif; font-size: 14px; padding: 24px;
-      text-align: center; background: rgba(0,0,0,0.6); }
+      text-align: center; background: rgba(60,25,5,0.62); z-index: 5; }
   </style>
 </head>
 <body>
   <div id="app"></div>
+  <div id="toran"></div>
   <div id="vignette"></div>
   <div id="err"></div>
 
@@ -29,15 +39,16 @@
   <script>
   //=====================================================================
   // ePooja immersive scene — VISUALS ONLY. Flutter conducts: it sends
-  // loadMurti / addProps / cue / setOrbitEnabled / pause / resume, and this
-  // page posts back sceneReady / murtiProgress / murtiLoaded / propsLoaded /
-  // fpsReport / error. No audio, no clock — audio + choreography live in Flutter.
+  // loadMurti / addProps / cue / setOrbitEnabled / resetView / pause / resume,
+  // and this page posts back sceneReady / murtiProgress / murtiLoaded /
+  // propsLoaded / fpsReport / error. No audio, no clock — audio + choreography
+  // live in Flutter.
   //=====================================================================
   var HDR_URL = 'https://dl.polyhaven.org/file/ph-assets/HDRIs/hdr/2k/entrance_hall_2k.hdr';
 
   var scene, camera, renderer, controls, clock, pmrem, gltfLoader;
-  var idol, halo, keyLight, spotLight, ambLight;
-  var diyas = [], flames = [], petals = [], flowerProto = null;
+  var idol, halo, niche, keyLight, spotLight, ambLight;
+  var diyas = [], flames = [], petals = [], flowerProto = null, flowerFallback = false, flowerTexes = null;
   var aartiLamp = null, aartiActive = false;
   var showering = false, paused = false;
   var frames = 0, _fpsT0 = 0, fpsReported = false, _lw = 0, _lh = 0;
@@ -64,6 +75,7 @@
         case 'addProps': addProps(p.props || []); break;
         case 'cue': onCue(p.propType, !!p.on); break;
         case 'setOrbitEnabled': if(controls){ controls.enableRotate = !!p.enabled; controls.enableZoom = !!p.enabled; } break;
+        case 'resetView': resetView(); break;
         case 'pause': paused = true; break;
         case 'resume': paused = false; break;
         default: break;
@@ -72,6 +84,10 @@
   }
   window.__appWebBridge = { receive: handleInbound };
   window.addEventListener('message', function(e){ if(typeof e.data === 'string') handleInbound(e.data); });
+
+  // Reset the user's orbit back to the framed front view (saveState captured the
+  // configured camera+target at init). Driven by the app's top-right reset button.
+  function resetView(){ if(controls){ controls.reset(); } }
 
   //--- canvas textures (flame core, soft glow) ------------------------
   function radialTex(stops, s){ s=s||64; var c=document.createElement('canvas'); c.width=c.height=s; var g=c.getContext('2d');
@@ -98,6 +114,35 @@
       f.core.material.opacity=0.85+n; var g=f.base*3.4*(1+n*0.3); f.glow.scale.set(g,g,1); f.glow.material.opacity=0.38+Math.abs(n)*1.2;
     }
   }
+
+  //--- flower textures (vivid 2D marigold + rose, drawn on canvas) -----
+  function marigoldTex(outer, mid, inner){
+    var s=128, cv=document.createElement('canvas'); cv.width=cv.height=s; var g=cv.getContext('2d'); var cx=64, cy=64;
+    var rings=[[46,20,outer],[34,16,mid],[22,13,inner],[11,9,inner]];
+    for(var r=0;r<rings.length;r++){ var rad=rings[r][0], n=rings[r][1]; g.fillStyle=rings[r][2];
+      for(var i=0;i<n;i++){ var a=(i/n)*Math.PI*2 + r*0.4;
+        var px=cx+Math.cos(a)*rad*0.62, py=cy+Math.sin(a)*rad*0.62;
+        g.save(); g.translate(px,py); g.rotate(a+Math.PI/2);
+        g.beginPath(); g.ellipse(0,0,rad*0.18,rad*0.34,0,0,Math.PI*2); g.fill(); g.restore(); } }
+    g.fillStyle=inner; g.beginPath(); g.arc(cx,cy,9,0,Math.PI*2); g.fill();
+    var t=new THREE.CanvasTexture(cv); t.anisotropy=4; return t;
+  }
+  function roseTex(){
+    var s=128, cv=document.createElement('canvas'); cv.width=cv.height=s; var g=cv.getContext('2d'); var cx=64,cy=64;
+    var layers=[[42,'#e85d86'],[30,'#f47ba0'],[18,'#ffa8c2']];
+    for(var r=0;r<layers.length;r++){ var rad=layers[r][0]; g.fillStyle=layers[r][1]; var n=6;
+      for(var i=0;i<n;i++){ var a=(i/n)*Math.PI*2 + r*0.5;
+        var px=cx+Math.cos(a)*rad*0.5, py=cy+Math.sin(a)*rad*0.5;
+        g.save(); g.translate(px,py); g.rotate(a+Math.PI/2);
+        g.beginPath(); g.ellipse(0,0,rad*0.34,rad*0.46,0,0,Math.PI*2); g.fill(); g.restore(); } }
+    g.fillStyle='#c94b6e'; g.beginPath(); g.arc(cx,cy,7,0,Math.PI*2); g.fill();
+    var t=new THREE.CanvasTexture(cv); t.anisotropy=4; return t;
+  }
+  function buildFlowerTexes(){ if(flowerTexes) return flowerTexes;
+    flowerTexes=[ marigoldTex('#e5730f','#f79a1e','#ffcf3f'),
+                  marigoldTex('#ef9412','#ffc23e','#fff0a0'),
+                  roseTex() ];
+    return flowerTexes; }
 
   //--- geometry helpers ----------------------------------------------
   function fitInto(obj,size){ obj.updateMatrixWorld(true); var b=new THREE.Box3().setFromObject(obj); var s=b.getSize(new THREE.Vector3());
@@ -142,26 +187,31 @@
             gltfLoader.load('props/lamp.glb', function(g){ placeDiyas(g.scene); }, undefined, function(){});
             gltfLoader.load('props/thali.glb', function(g){ placeAarti(g.scene); }, undefined, function(){});
           } else if(prop.type==='flower'){
-            flowerProto = makeProceduralPetal();
+            flowerFallback = true;   // no flower GLB → shower vivid canvas-drawn marigolds/roses
           }
         } finally { done(); }   // the ritual must not block on a missing prop
       });
     })(props[i]); }
   }
 
-  // lamp → two lit hanging diyas flanking the murti, always lit (never off)
+  // lamp → two lit diyas RESTING at the base of the pedestal, one each side,
+  // always lit (never off). The lamp GLB ships its own (static) flame — hide it
+  // so we render exactly one animated flame per diya.
   function placeDiyas(model){
-    var spots=[[-1.15,0.6],[1.15,0.6]];
-    for(var i=0;i<spots.length;i++){ var grp=new THREE.Group(); grp.position.set(spots[i][0],spots[i][1],0.2);
-      var m=model.clone(true); fitInto(m,0.45); grp.add(m);
-      var light=new THREE.PointLight(0xffa542,1.6,4); light.position.set(0,0.25,0.1); grp.add(light);
-      var bb=new THREE.Box3().setFromObject(m); makeFlame(grp,0,bb.max.y*0.9,0,0.06);
+    var spots=[[-1.15,0.9],[1.15,0.9]];   // [x, z] — flanking the pedestal base, brought forward so they read
+    for(var i=0;i<spots.length;i++){ var grp=new THREE.Group(); grp.position.set(spots[i][0],-1.28,spots[i][1]);
+      var m=model.clone(true);
+      m.traverse(function(o){ if(o.name && /flame|wick|fire|agni/i.test(o.name)) o.visible=false; }); // drop the GLB's own flame; we add one
+      fitInto(m,0.5); grp.add(m);
+      var light=new THREE.PointLight(0xffa542,1.7,4.5); light.position.set(0,0.28,0.12); grp.add(light);
+      var bb=new THREE.Box3().setFromObject(m); makeFlame(grp,0,bb.max.y*0.86,0.02,0.07);
       scene.add(grp); diyas.push({grp:grp,light:light,seed:Math.random()*10}); }
   }
-  function updateDiyas(t){ for(var i=0;i<diyas.length;i++){ var d=diyas[i]; d.light.intensity=1.3+Math.sin(t*11+d.seed)*0.4+Math.sin(t*27+d.seed)*0.2; } }
+  function updateDiyas(t){ for(var i=0;i<diyas.length;i++){ var d=diyas[i]; d.light.intensity=1.4+Math.sin(t*11+d.seed)*0.4+Math.sin(t*27+d.seed)*0.2; } }
 
-  // lamp → also the aarti: a lit lamp/thali (same GLB) that circles the murti's
-  // face while the lamp cue is active. Hidden until the cue turns it on.
+  // lamp → also the aarti: a lit thali (aarti_thali.glb has no usable flame, so
+  // it rides beneath a standalone flame) that circles the murti's face while the
+  // lamp cue is active. Hidden until the cue turns it on.
   function placeAarti(model){
     aartiLamp = new THREE.Group();
     var m = model.clone(true); fitInto(m, 0.5); aartiLamp.add(m);
@@ -187,27 +237,76 @@
     if(propType==='lamp'){ aartiActive = on; }
   }
 
-  // demo fallback marigold bud, used when the flower prop GLB is unavailable (403).
-  // A flattened, marigold-orange sphere that clones/fits exactly like a real flower GLB.
-  function makeProceduralPetal(){
-    var g=new THREE.Group();
-    var mat=new THREE.MeshStandardMaterial({color:0xff9d2e,roughness:0.55,emissive:0x5a2600,emissiveIntensity:0.25});
-    var bud=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),mat); bud.scale.set(1,0.4,1); g.add(bud);
-    return g;
+  // flower shower — clones of the real flower GLB when available, else a pool of
+  // vivid canvas-drawn marigold/rose planes that tumble as they fall.
+  function ensurePetalPool(){
+    if(petals.length) return;
+    if(flowerProto){
+      for(var i=0;i<16;i++){ var m=flowerProto.clone(true); fitInto(m,0.16); m.visible=false; scene.add(m); petals.push(mkPetal(m)); }
+      return;
+    }
+    if(!flowerFallback) return;
+    var tex=buildFlowerTexes();
+    for(var j=0;j<22;j++){
+      var mat=new THREE.MeshBasicMaterial({map:tex[j%tex.length],transparent:true,alphaTest:0.35,side:THREE.DoubleSide});
+      var pl=new THREE.Mesh(new THREE.PlaneGeometry(0.34,0.34),mat); pl.visible=false; scene.add(pl); petals.push(mkPetal(pl));
+    }
+  }
+  function mkPetal(o){ return {o:o,vy:0,sway:Math.random()*6.28,sp:0.5+Math.random(),spin:(Math.random()-0.5)*2.4}; }
+  function spawnPetal(){ for(var i=0;i<petals.length;i++){ var p=petals[i]; if(!p.o.visible){
+    p.o.position.set((Math.random()-0.5)*3.4,3.3+Math.random()*1.1,(Math.random()-0.5)*1.5);
+    p.vy=0.7+Math.random()*0.7; p.o.visible=true; return; } } }
+  function updatePetals(dt){ for(var i=0;i<petals.length;i++){ var p=petals[i]; if(!p.o.visible) continue;
+    p.sway+=dt*p.sp; p.o.position.y-=p.vy*dt; p.o.position.x+=Math.sin(p.sway)*dt*0.5;
+    p.o.rotation.z+=p.spin*dt; p.o.rotation.x+=p.spin*0.55*dt;   // tumble like a real falling flower
+    if(p.o.position.y<-2.7) p.o.visible=false; } }
+
+  //--- decoration: toran (top garland + hanging corner diyas) ---------
+  function miniMarigold(g,x,y,r,col,cen){ g.fillStyle=col;
+    for(var a=0;a<Math.PI*2;a+=Math.PI/5){ g.beginPath(); g.arc(x+Math.cos(a)*r*0.6, y+Math.sin(a)*r*0.6, r*0.5,0,Math.PI*2); g.fill(); }
+    g.fillStyle=cen; g.beginPath(); g.arc(x,y,r*0.58,0,Math.PI*2); g.fill(); }
+  function leafCluster(g,x,y){ var n=3;
+    for(var i=0;i<n;i++){ var a=(i-(n-1)/2)*0.5, len=22+(i===1?7:0);
+      g.save(); g.translate(x,y); g.rotate(a);
+      var grd=g.createLinearGradient(0,0,0,len); grd.addColorStop(0,'#4a8a34'); grd.addColorStop(1,'#1f5417');
+      g.fillStyle=grd; g.beginPath(); g.ellipse(0,len*0.55,5,len*0.55,0,0,Math.PI*2); g.fill(); g.restore(); } }
+  function marigoldStrand(g,x,y,count){ g.strokeStyle='rgba(120,80,20,0.45)'; g.lineWidth=1.5;
+    g.beginPath(); g.moveTo(x,y); g.lineTo(x,y+count*19); g.stroke();
+    for(var i=1;i<=count;i++){ miniMarigold(g,x,y+i*19,8,'#ef8a1c','#ffcf3f'); } }
+  function hangingDiya(g,x,h){ var topY=6, botY=h-34;
+    g.strokeStyle='#8a5a2a'; g.lineWidth=2; g.beginPath(); g.moveTo(x,topY); g.lineTo(x,botY); g.stroke();
+    g.fillStyle='#caa24a'; for(var by=topY; by<botY; by+=13){ g.beginPath(); g.arc(x,by,2.4,0,Math.PI*2); g.fill(); }
+    var grd=g.createLinearGradient(x,botY,x,botY+16); grd.addColorStop(0,'#c06a24'); grd.addColorStop(1,'#7a3b12');
+    g.fillStyle=grd; g.beginPath(); g.ellipse(x,botY+7,15,9,0,0,Math.PI); g.fill();
+    g.fillStyle='#e0842e'; g.beginPath(); g.ellipse(x,botY,15,4,0,0,Math.PI*2); g.fill();
+    var fg=g.createLinearGradient(x,botY-2,x,botY-24); fg.addColorStop(0,'#ff7a1e'); fg.addColorStop(0.55,'#ffd24a'); fg.addColorStop(1,'rgba(255,255,255,0)');
+    g.fillStyle=fg; g.beginPath(); g.moveTo(x,botY-2); g.bezierCurveTo(x+8,botY-13,x+3,botY-26,x,botY-26); g.bezierCurveTo(x-3,botY-26,x-8,botY-13,x,botY-2); g.fill(); }
+  function drawToran(){
+    try{
+      var w=Math.max(window.innerWidth,320), h=156;
+      var cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d');
+      g.strokeStyle='#6b3f1e'; g.lineWidth=3; g.beginPath(); g.moveTo(0,10);
+      for(var x=0;x<=w;x+=18){ g.lineTo(x,10+Math.sin(x*0.05)*3); } g.stroke();
+      var step=44;
+      for(var lx=step*0.5; lx<w; lx+=step){ leafCluster(g,lx,12); }
+      for(var mx=step; mx<w; mx+=step){ marigoldStrand(g,mx,12,2+(Math.floor(mx)%2)); }
+      hangingDiya(g,28,h); hangingDiya(g,w-28,h);
+      document.getElementById('toran').style.backgroundImage='url('+cv.toDataURL()+')';
+    }catch(e){}
   }
 
-  // flower shower — a small pool of falling clones of the flower prop GLB
-  function ensurePetalPool(){
-    if(petals.length || !flowerProto) return;
-    for(var i=0;i<16;i++){ var m=flowerProto.clone(true); fitInto(m,0.16); m.visible=false; scene.add(m);
-      petals.push({o:m,vy:0,sway:Math.random()*6.28,sp:0.5+Math.random(),spin:(Math.random()-0.5)*1.5}); }
+  //--- decoration: arched golden niche glow behind the deity ----------
+  function nicheTex(){
+    var w=256, h=340, cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d');
+    var cx=w/2, archR=w*0.42, bodyTop=h*0.30;
+    g.beginPath(); g.moveTo(cx-archR,h); g.lineTo(cx-archR,bodyTop);
+    g.arc(cx,bodyTop,archR,Math.PI,0); g.lineTo(cx+archR,h); g.closePath();
+    var grd=g.createRadialGradient(cx,h*0.5,10,cx,h*0.52,w*0.62);
+    grd.addColorStop(0,'rgba(255,242,208,0.96)'); grd.addColorStop(0.5,'rgba(255,201,120,0.55)'); grd.addColorStop(1,'rgba(240,150,60,0)');
+    g.fillStyle=grd; g.fill();
+    g.strokeStyle='rgba(214,164,74,0.5)'; g.lineWidth=6; g.stroke();
+    return new THREE.CanvasTexture(cv);
   }
-  function spawnPetal(){ for(var i=0;i<petals.length;i++){ var p=petals[i]; if(!p.o.visible){
-    p.o.position.set((Math.random()-0.5)*3.2,3.2+Math.random()*1.0,(Math.random()-0.5)*1.4);
-    p.vy=0.7+Math.random()*0.6; p.o.visible=true; return; } } }
-  function updatePetals(dt){ for(var i=0;i<petals.length;i++){ var p=petals[i]; if(!p.o.visible) continue;
-    p.sway+=dt*p.sp; p.o.position.y-=p.vy*dt; p.o.position.x+=Math.sin(p.sway)*dt*0.45; p.o.rotation.y+=p.spin*dt;
-    if(p.o.position.y<-2.6) p.o.visible=false; } }
 
   //--- lifecycle ------------------------------------------------------
   function init(){
@@ -218,7 +317,7 @@
       renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
       renderer.setSize(window.innerWidth,window.innerHeight);
       renderer.setClearColor(0x000000,0);
-      renderer.outputEncoding=THREE.sRGBEncoding; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=0.98;
+      renderer.outputEncoding=THREE.sRGBEncoding; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
       app.appendChild(renderer.domElement);   // MANDATORY — without this the canvas renders off-DOM
 
       scene=new THREE.Scene();
@@ -229,22 +328,26 @@
         new THREE.RGBELoader().load(HDR_URL,function(hdr){ hdr.mapping=THREE.EquirectangularReflectionMapping;
           scene.environment=pmrem.fromEquirectangular(hdr).texture; hdr.dispose(); }); }catch(e){}
 
-      ambLight=new THREE.AmbientLight(0xffe6c0,0.16); scene.add(ambLight);
-      keyLight=new THREE.DirectionalLight(0xffe0b0,0.6); keyLight.position.set(1.5,3.5,3); scene.add(keyLight);
+      ambLight=new THREE.AmbientLight(0xffe6c0,0.20); scene.add(ambLight);
+      keyLight=new THREE.DirectionalLight(0xffe0b0,0.65); keyLight.position.set(1.5,3.5,3); scene.add(keyLight);
       var rim=new THREE.DirectionalLight(0xffcaa0,0.4); rim.position.set(-3,2,-2.5); scene.add(rim);
-      spotLight=new THREE.SpotLight(0xfff2d2,1.5,16,Math.PI*0.24,0.6,1.0); spotLight.position.set(0,4.6,3.6); spotLight.target.position.set(0,0.1,0); scene.add(spotLight); scene.add(spotLight.target);
+      spotLight=new THREE.SpotLight(0xfff2d2,1.55,16,Math.PI*0.24,0.6,1.0); spotLight.position.set(0,4.6,3.6); spotLight.target.position.set(0,0.1,0); scene.add(spotLight); scene.add(spotLight.target);
       var back=new THREE.DirectionalLight(0xffdca6,2.2); back.position.set(0,2.6,-4); scene.add(back);
 
       texGlow=radialTex([[0,'rgba(255,214,140,0.95)'],[0.5,'rgba(255,160,60,0.28)'],[1,'rgba(255,140,40,0)']],128);
       texEmber=radialTex([[0,'rgba(255,190,90,0.95)'],[0.4,'rgba(255,130,40,0.42)'],[1,'rgba(255,110,30,0)']]);
       texFlameCore=flameTex();
 
-      halo=new THREE.Sprite(new THREE.SpriteMaterial({map:texGlow,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.7}));
-      halo.scale.set(5.6,5.6,1); halo.position.set(0,0.7,-1.8); scene.add(halo);
+      // arched niche glow (temple shrine backdrop) — camera-facing, so it reads in portrait
+      niche=new THREE.Sprite(new THREE.SpriteMaterial({map:nicheTex(),transparent:true,depthWrite:false,opacity:0.9}));
+      niche.scale.set(5.4,7.2,1); niche.position.set(0,0.55,-1.7); scene.add(niche);
+      // tight divine halo right behind the deity
+      halo=new THREE.Sprite(new THREE.SpriteMaterial({map:texGlow,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.62}));
+      halo.scale.set(4.6,4.6,1); halo.position.set(0,0.85,-1.4); scene.add(halo);
 
-      var base=new THREE.Mesh(new THREE.CylinderGeometry(1.15,1.35,0.35,48), new THREE.MeshStandardMaterial({color:0x4a2e18,metalness:0.1,roughness:0.85}));
+      var base=new THREE.Mesh(new THREE.CylinderGeometry(1.15,1.35,0.35,48), new THREE.MeshStandardMaterial({color:0x5a3a1c,metalness:0.15,roughness:0.8}));
       base.position.y=-1.15; scene.add(base);
-      var prim=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,0.12,48), new THREE.MeshStandardMaterial({color:0xc79a44,metalness:0.5,roughness:0.35}));
+      var prim=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,0.12,48), new THREE.MeshStandardMaterial({color:0xc79a44,metalness:0.55,roughness:0.32}));
       prim.position.y=-0.95; scene.add(prim);
 
       gltfLoader=new THREE.GLTFLoader();
@@ -255,18 +358,22 @@
       controls.enablePan=false; controls.enableRotate=true; controls.enableDamping=true; controls.dampingFactor=0.08;
       controls.autoRotate=false; controls.target.set(0,0.05,0);
       controls.minPolarAngle=Math.PI*0.30; controls.maxPolarAngle=Math.PI*0.58;
+      controls.minAzimuthAngle=-Math.PI*0.42; controls.maxAzimuthAngle=Math.PI*0.42;   // look around the sides, stay presentable
+      controls.saveState();   // capture this framed view so resetView() can restore it
 
+      drawToran();
       window.addEventListener('resize',onResize);
       clock=new THREE.Clock(); animate();
       send('sceneReady');
 
       // Standalone browser self-test: ?murti=<url> loads a model + starts a shower.
       var q=new URLSearchParams(location.search); var mu=q.get('murti');
-      if(mu){ loadMurti(mu); showering=true; }
+      if(mu){ loadMurti(mu); flowerFallback=true; showering=true;
+        addProps([{type:'lamp',url:'props/lamp.glb'}]); setTimeout(function(){ aartiActive=true; }, 400); }
     }catch(e){ fail(e&&e.message?e.message:e); }
   }
 
-  function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); }
+  function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); drawToran(); }
 
   function animate(){
     requestAnimationFrame(animate);
