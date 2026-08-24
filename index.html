@@ -133,7 +133,19 @@
           if(prop.type==='lamp'){ placeDiyas(g.scene); placeAarti(g.scene); }
           else if(prop.type==='flower'){ flowerProto=g.scene; }
         } finally { done(); }   // complete even if a handler throws, so propsLoaded can't hang
-      }, undefined, function(){ done(); }); // a prop that fails to load must not block the ritual
+      }, undefined, function(){
+        // A prop GLB that fails to load (the backend's cue assets currently 403) falls back to a
+        // hosted/procedural prop so the ritual still shows its diyas/aarti/petals. When the backend
+        // serves real, public prop GLBs the success path above takes over and this never runs.
+        try{
+          if(prop.type==='lamp'){
+            gltfLoader.load('props/lamp.glb', function(g){ placeDiyas(g.scene); }, undefined, function(){});
+            gltfLoader.load('props/thali.glb', function(g){ placeAarti(g.scene); }, undefined, function(){});
+          } else if(prop.type==='flower'){
+            flowerProto = makeProceduralPetal();
+          }
+        } finally { done(); }   // the ritual must not block on a missing prop
+      });
     })(props[i]); }
   }
 
@@ -173,6 +185,15 @@
     // lamp stays lit (diyas, never extinguished) AND performs the aarti — the
     // lamp/thali circles the murti while its cue is active.
     if(propType==='lamp'){ aartiActive = on; }
+  }
+
+  // demo fallback marigold bud, used when the flower prop GLB is unavailable (403).
+  // A flattened, marigold-orange sphere that clones/fits exactly like a real flower GLB.
+  function makeProceduralPetal(){
+    var g=new THREE.Group();
+    var mat=new THREE.MeshStandardMaterial({color:0xff9d2e,roughness:0.55,emissive:0x5a2600,emissiveIntensity:0.25});
+    var bud=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),mat); bud.scale.set(1,0.4,1); g.add(bud);
+    return g;
   }
 
   // flower shower — a small pool of falling clones of the flower prop GLB
