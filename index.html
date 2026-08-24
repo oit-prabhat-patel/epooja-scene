@@ -116,31 +116,36 @@
   }
 
   //--- flower textures (vivid 2D marigold + rose, drawn on canvas) -----
+  // Canvas colours are sRGB; tag the texture so it isn't double-lightened to a
+  // pale wash under the renderer's sRGB output (the fix for washed-out flowers).
+  function srgb(t){ t.anisotropy=4; if(THREE.sRGBEncoding!==undefined) t.encoding=THREE.sRGBEncoding; return t; }
   function marigoldTex(outer, mid, inner){
     var s=128, cv=document.createElement('canvas'); cv.width=cv.height=s; var g=cv.getContext('2d'); var cx=64, cy=64;
-    var rings=[[46,20,outer],[34,16,mid],[22,13,inner],[11,9,inner]];
+    g.fillStyle=outer; g.beginPath(); g.arc(cx,cy,47,0,Math.PI*2); g.fill();   // solid base so it reads as a full bloom at small size
+    var rings=[[47,22,outer],[36,18,mid],[24,14,inner],[12,10,inner]];
     for(var r=0;r<rings.length;r++){ var rad=rings[r][0], n=rings[r][1]; g.fillStyle=rings[r][2];
       for(var i=0;i<n;i++){ var a=(i/n)*Math.PI*2 + r*0.4;
         var px=cx+Math.cos(a)*rad*0.62, py=cy+Math.sin(a)*rad*0.62;
         g.save(); g.translate(px,py); g.rotate(a+Math.PI/2);
-        g.beginPath(); g.ellipse(0,0,rad*0.18,rad*0.34,0,0,Math.PI*2); g.fill(); g.restore(); } }
-    g.fillStyle=inner; g.beginPath(); g.arc(cx,cy,9,0,Math.PI*2); g.fill();
-    var t=new THREE.CanvasTexture(cv); t.anisotropy=4; return t;
+        g.beginPath(); g.ellipse(0,0,rad*0.2,rad*0.36,0,0,Math.PI*2); g.fill(); g.restore(); } }
+    g.fillStyle=inner; g.beginPath(); g.arc(cx,cy,10,0,Math.PI*2); g.fill();
+    return srgb(new THREE.CanvasTexture(cv));
   }
   function roseTex(){
     var s=128, cv=document.createElement('canvas'); cv.width=cv.height=s; var g=cv.getContext('2d'); var cx=64,cy=64;
-    var layers=[[42,'#e85d86'],[30,'#f47ba0'],[18,'#ffa8c2']];
+    g.fillStyle='#e14f7c'; g.beginPath(); g.arc(cx,cy,44,0,Math.PI*2); g.fill();
+    var layers=[[44,'#e14f7c'],[31,'#f26f95'],[18,'#ff9ab6']];
     for(var r=0;r<layers.length;r++){ var rad=layers[r][0]; g.fillStyle=layers[r][1]; var n=6;
       for(var i=0;i<n;i++){ var a=(i/n)*Math.PI*2 + r*0.5;
         var px=cx+Math.cos(a)*rad*0.5, py=cy+Math.sin(a)*rad*0.5;
         g.save(); g.translate(px,py); g.rotate(a+Math.PI/2);
-        g.beginPath(); g.ellipse(0,0,rad*0.34,rad*0.46,0,0,Math.PI*2); g.fill(); g.restore(); } }
-    g.fillStyle='#c94b6e'; g.beginPath(); g.arc(cx,cy,7,0,Math.PI*2); g.fill();
-    var t=new THREE.CanvasTexture(cv); t.anisotropy=4; return t;
+        g.beginPath(); g.ellipse(0,0,rad*0.36,rad*0.48,0,0,Math.PI*2); g.fill(); g.restore(); } }
+    g.fillStyle='#c23c63'; g.beginPath(); g.arc(cx,cy,8,0,Math.PI*2); g.fill();
+    return srgb(new THREE.CanvasTexture(cv));
   }
   function buildFlowerTexes(){ if(flowerTexes) return flowerTexes;
-    flowerTexes=[ marigoldTex('#e5730f','#f79a1e','#ffcf3f'),
-                  marigoldTex('#ef9412','#ffc23e','#fff0a0'),
+    flowerTexes=[ marigoldTex('#d95f00','#f5820a','#ffbb28'),
+                  marigoldTex('#e8700a','#ffab1a','#ffdb54'),
                   roseTex() ];
     return flowerTexes; }
 
@@ -247,9 +252,10 @@
     }
     if(!flowerFallback) return;
     var tex=buildFlowerTexes();
-    for(var j=0;j<22;j++){
+    for(var j=0;j<26;j++){
       var mat=new THREE.MeshBasicMaterial({map:tex[j%tex.length],transparent:true,alphaTest:0.35,side:THREE.DoubleSide});
-      var pl=new THREE.Mesh(new THREE.PlaneGeometry(0.34,0.34),mat); pl.visible=false; scene.add(pl); petals.push(mkPetal(pl));
+      var sz=0.38+Math.random()*0.12;   // slight size variety
+      var pl=new THREE.Mesh(new THREE.PlaneGeometry(sz,sz),mat); pl.visible=false; scene.add(pl); petals.push(mkPetal(pl));
     }
   }
   function mkPetal(o){ return {o:o,vy:0,sway:Math.random()*6.28,sp:0.5+Math.random(),spin:(Math.random()-0.5)*2.4}; }
@@ -383,7 +389,7 @@
       if(controls) controls.update();
       if(idol) idol.rotation.y=-Math.PI/2+Math.sin(t*0.45)*0.2;   // front-facing gentle sway (per-model orientation may need tuning)
       updateFlames(t); updateDiyas(t); updateAarti(t);
-      if(showering){ ensurePetalPool(); if(Math.random()<dt*24) spawnPetal(); }
+      if(showering){ ensurePetalPool(); if(Math.random()<dt*30) spawnPetal(); }
       updatePetals(dt);
       if(halo) halo.material.rotation+=dt*0.04;
     }
