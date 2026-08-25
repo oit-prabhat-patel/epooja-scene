@@ -14,11 +14,12 @@
         linear-gradient(180deg, #365149 0%, #48655c 42%, #48655c 58%, #2b453e 100%); }
     #app { position: fixed; inset: 0; z-index: 1; }
     canvas { display: block; touch-action: none; }
-    /* Toran (temple doorway garland + hanging corner diyas) drawn to a canvas
-       and pinned across the top. pointer-events:none so orbit touches pass through. */
-    #toran { position: fixed; top: 0; left: 0; right: 0; height: 156px; z-index: 2;
-      pointer-events: none; background-repeat: no-repeat; background-position: top center;
-      background-size: 100% auto; }
+    /* Real hanging-diya asset (Figma 1:3461), pinned to the top corners; the right
+       one is mirrored. pointer-events:none so orbit touches pass through. */
+    #diya-left, #diya-right { position: fixed; top: 0; width: 23vw; max-width: 120px;
+      height: auto; z-index: 2; pointer-events: none; }
+    #diya-left { left: 6px; }
+    #diya-right { right: 6px; transform: scaleX(-1); }
     #vignette { position: fixed; inset: 0; pointer-events: none; z-index: 2;
       background: radial-gradient(88% 78% at 50% 42%, rgba(0,0,0,0) 60%, rgba(14,32,27,0.34) 100%); }
     #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -28,7 +29,8 @@
 </head>
 <body>
   <div id="app"></div>
-  <div id="toran"></div>
+  <img id="diya-left" src="diya.png" alt="" />
+  <img id="diya-right" src="diya.png" alt="" />
   <div id="vignette"></div>
   <div id="err"></div>
 
@@ -291,52 +293,8 @@
     p.o.rotation.z+=p.spin*dt; p.o.rotation.x+=p.spin*0.55*dt;   // tumble like a real falling flower
     if(p.o.position.y<-2.7) p.o.visible=false; } }
 
-  //--- decoration: toran (top garland + hanging corner diyas) ---------
-  function miniMarigold(g,x,y,r,col,cen){ g.fillStyle=col;
-    for(var a=0;a<Math.PI*2;a+=Math.PI/5){ g.beginPath(); g.arc(x+Math.cos(a)*r*0.6, y+Math.sin(a)*r*0.6, r*0.5,0,Math.PI*2); g.fill(); }
-    g.fillStyle=cen; g.beginPath(); g.arc(x,y,r*0.58,0,Math.PI*2); g.fill(); }
-  function leafCluster(g,x,y){ var n=3;
-    for(var i=0;i<n;i++){ var a=(i-(n-1)/2)*0.5, len=22+(i===1?7:0);
-      g.save(); g.translate(x,y); g.rotate(a);
-      var grd=g.createLinearGradient(0,0,0,len); grd.addColorStop(0,'#4a8a34'); grd.addColorStop(1,'#1f5417');
-      g.fillStyle=grd; g.beginPath(); g.ellipse(0,len*0.55,5,len*0.55,0,0,Math.PI*2); g.fill(); g.restore(); } }
-  function marigoldStrand(g,x,y,count){ g.strokeStyle='rgba(120,80,20,0.45)'; g.lineWidth=1.5;
-    g.beginPath(); g.moveTo(x,y); g.lineTo(x,y+count*19); g.stroke();
-    for(var i=1;i<=count;i++){ miniMarigold(g,x,y+i*19,8,'#ef8a1c','#ffcf3f'); } }
-  // Hanging diyas matched to Figma: beaded string, terracotta faceted bowl, and a
-  // bright teardrop flame with a white-hot core — two staggered per corner.
-  function figmaDiya(g,x,dropY,sc){
-    g.strokeStyle='#4a2f18'; g.lineWidth=1.3; g.beginPath(); g.moveTo(x,4); g.lineTo(x,dropY); g.stroke();
-    g.fillStyle='#3a2410'; for(var by=6; by<dropY-3; by+=8){ g.beginPath(); g.arc(x,by,1.8,0,Math.PI*2); g.fill(); }
-    var w=17*sc, h=11*sc;
-    var grd=g.createLinearGradient(x-w,dropY,x+w,dropY+h*1.6); grd.addColorStop(0,'#8a4a1e'); grd.addColorStop(0.5,'#b5622a'); grd.addColorStop(1,'#5f3213');
-    g.fillStyle=grd; g.beginPath(); g.ellipse(x,dropY+h*0.5,w,h,0,0,Math.PI); g.fill();
-    g.strokeStyle='rgba(60,30,10,0.4)'; g.lineWidth=1;
-    for(var fx=-2;fx<=2;fx++){ g.beginPath(); g.moveTo(x+fx*w*0.34,dropY+2); g.lineTo(x+fx*w*0.3,dropY+h*1.25); g.stroke(); }
-    g.fillStyle='#c9743a'; g.beginPath(); g.ellipse(x,dropY,w,h*0.4,0,0,Math.PI*2); g.fill();
-    g.fillStyle='#e69a52'; g.beginPath(); g.ellipse(x,dropY,w*0.68,h*0.26,0,0,Math.PI*2); g.fill();
-    var fy=dropY-1;
-    var fg=g.createLinearGradient(x,fy,x,fy-27*sc); fg.addColorStop(0,'#ff7a1e'); fg.addColorStop(0.42,'#ffb42e'); fg.addColorStop(0.74,'#ffe98a'); fg.addColorStop(1,'rgba(255,255,255,0)');
-    g.fillStyle=fg; g.beginPath(); g.moveTo(x,fy); g.bezierCurveTo(x+7*sc,fy-12*sc,x+3.5*sc,fy-27*sc,x,fy-27*sc); g.bezierCurveTo(x-3.5*sc,fy-27*sc,x-7*sc,fy-12*sc,x,fy); g.fill();
-    g.fillStyle='rgba(255,252,236,0.92)'; g.beginPath(); g.ellipse(x,fy-9*sc,2.2*sc,5.2*sc,0,0,Math.PI*2); g.fill();
-  }
-  function hangingDiyaCluster(g,cornerX,dir){
-    figmaDiya(g, cornerX, 120, 1.05);           // lower, larger
-    figmaDiya(g, cornerX + dir*44, 70, 0.82);   // upper, smaller
-  }
-  function drawToran(){
-    try{
-      var w=Math.max(window.innerWidth,320), h=156;
-      var cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d');
-      g.strokeStyle='#6b3f1e'; g.lineWidth=3; g.beginPath(); g.moveTo(0,10);
-      for(var x=0;x<=w;x+=18){ g.lineTo(x,10+Math.sin(x*0.05)*3); } g.stroke();
-      var step=44;
-      for(var lx=step*0.5; lx<w; lx+=step){ leafCluster(g,lx,12); }
-      for(var mx=step; mx<w; mx+=step){ marigoldStrand(g,mx,12,2+(Math.floor(mx)%2)); }
-      hangingDiyaCluster(g,30,1); hangingDiyaCluster(g,w-30,-1);
-      document.getElementById('toran').style.backgroundImage='url('+cv.toDataURL()+')';
-    }catch(e){}
-  }
+  //--- decoration: hanging diyas are the real Figma PNG (diya.png), placed as
+  //    #diya-left / #diya-right HTML overlays — no canvas drawing needed.
 
   //--- decoration: arched golden niche glow behind the deity ----------
   function nicheTex(){
@@ -404,7 +362,6 @@
       controls.minAzimuthAngle=-Math.PI*0.42; controls.maxAzimuthAngle=Math.PI*0.42;   // look around the sides, stay presentable
       controls.saveState();   // capture this framed view so resetView() can restore it
 
-      drawToran();
       window.addEventListener('resize',onResize);
       clock=new THREE.Clock(); animate();
       send('sceneReady');
@@ -416,7 +373,7 @@
     }catch(e){ fail(e&&e.message?e.message:e); }
   }
 
-  function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); drawToran(); }
+  function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); }
 
   function animate(){
     requestAnimationFrame(animate);
