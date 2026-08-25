@@ -362,6 +362,14 @@
       controls.minAzimuthAngle=-Math.PI*0.42; controls.maxAzimuthAngle=Math.PI*0.42;   // look around the sides, stay presentable
       controls.saveState();   // capture this framed view so resetView() can restore it
 
+      // Tap-to-toggle the app chrome: the WebView owns touch events (Flutter can't
+      // see them), so detect a quick tap here — minimal movement + short duration,
+      // i.e. NOT an orbit drag — and report it to Flutter.
+      var _tapX=0, _tapY=0, _tapDown=0;
+      renderer.domElement.addEventListener('pointerdown', function(e){ _tapX=e.clientX; _tapY=e.clientY; _tapDown=performance.now(); });
+      renderer.domElement.addEventListener('pointerup', function(e){
+        if(Math.abs(e.clientX-_tapX)<10 && Math.abs(e.clientY-_tapY)<10 && (performance.now()-_tapDown)<350){ send('screenTapped'); }
+      });
       window.addEventListener('resize',onResize);
       clock=new THREE.Clock(); animate();
       send('sceneReady');
