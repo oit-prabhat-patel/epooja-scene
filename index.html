@@ -25,17 +25,30 @@
     #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
       color: #fff; font-family: -apple-system, Roboto, sans-serif; font-size: 14px; padding: 24px;
       text-align: center; background: rgba(60,25,5,0.62); z-index: 5; }
-    /* experimental dev controls (bg + deity selectors), left edge */
-    #dev { position: fixed; left: 8px; top: 50%; transform: translateY(-50%);
-      z-index: 4; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-    .devrow { display: flex; flex-direction: column; gap: 3px; }
-    .devlbl { pointer-events: none; font-family: -apple-system, Roboto, sans-serif; font-size: 9px;
-      font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.7);
-      padding-left: 4px; text-shadow: 0 1px 2px rgba(0,0,0,0.6); }
-    .devsel { pointer-events: auto; font-family: -apple-system, Roboto, sans-serif; font-size: 12px;
-      font-weight: 600; color: #fff; background: rgba(18,28,24,0.72); border: 1px solid rgba(255,255,255,0.30);
-      border-radius: 13px; padding: 8px 12px; max-width: 150px; -webkit-tap-highlight-color: transparent; }
-    .devsel option { color: #111; }
+    /* experimental dev controls — bottom toolbar (just above the app buttons) +
+       a slide-up bottom sheet picker. #dev is toggled with the app chrome via the
+       setChromeVisible bridge command. */
+    #dev { position: fixed; left: 0; right: 0; bottom: 21%; z-index: 4;
+      display: flex; justify-content: center; gap: 10px; pointer-events: none; }
+    .devtrig { pointer-events: auto; font-family: -apple-system, Roboto, sans-serif; font-size: 12px;
+      font-weight: 600; color: #fff; background: rgba(18,24,28,0.66); border: 1px solid rgba(255,255,255,0.28);
+      border-radius: 16px; padding: 8px 14px; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+    #sheet { position: fixed; inset: 0; z-index: 6; pointer-events: none; visibility: hidden; }
+    #sheet.open { pointer-events: auto; visibility: visible; }
+    #sheetScrim { position: absolute; inset: 0; background: rgba(0,0,0,0); transition: background .2s; }
+    #sheet.open #sheetScrim { background: rgba(0,0,0,0.5); }
+    #sheetPanel { position: absolute; left: 0; right: 0; bottom: 0; max-height: 62%; overflow-y: auto;
+      background: rgba(22,24,28,0.98); border-radius: 20px 20px 0 0; padding: 4px 0 16px;
+      transform: translateY(100%); transition: transform .24s ease; box-shadow: 0 -8px 30px rgba(0,0,0,0.45);
+      font-family: -apple-system, Roboto, sans-serif; }
+    #sheet.open #sheetPanel { transform: translateY(0); }
+    #sheetHandle { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.3); margin: 10px auto 4px; }
+    #sheetTitle { color: rgba(255,255,255,0.6); font-size: 11px; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; text-align: center; padding: 6px 0 8px; }
+    .sheetrow { display: flex; align-items: center; justify-content: space-between; color: #fff; font-size: 15px;
+      padding: 14px 26px; -webkit-tap-highlight-color: transparent; }
+    .sheetrow.sel { color: #ffb552; font-weight: 700; }
+    .sheetrow .tick { color: #ffb552; font-size: 16px; }
   </style>
 </head>
 <body>
@@ -45,8 +58,12 @@
   <div id="vignette"></div>
   <div id="err"></div>
   <div id="dev">
-    <div class="devrow"><span class="devlbl">Scene</span><select id="selBg" class="devsel"></select></div>
-    <div class="devrow"><span class="devlbl">Deity</span><select id="selModel" class="devsel"></select></div>
+    <button id="trigBg" class="devtrig">Scene: Green</button>
+    <button id="trigModel" class="devtrig">Deity: Ganesha</button>
+  </div>
+  <div id="sheet">
+    <div id="sheetScrim"></div>
+    <div id="sheetPanel"><div id="sheetHandle"></div><div id="sheetTitle"></div><div id="sheetList"></div></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/build/three.min.js"></script>
@@ -99,6 +116,7 @@
         case 'setOrbitEnabled': if(controls){ controls.enableRotate = !!p.enabled; controls.enableZoom = !!p.enabled; } break;
         case 'resetView': resetView(); break;
         case 'resetScene': resetScene(); break;
+        case 'setChromeVisible': setDevVisible(!!p.visible); break;   // hide dev toolbar with the app chrome
         case 'pause': paused = true; break;
         case 'resume': paused = false; break;
         default: break;
@@ -477,7 +495,8 @@
   }
 
   //--- experimental background: festive marigold garlands + warm bokeh
-  function marigoldTex(){
+  //    (NB: named *Bg* to avoid colliding with the flower-shower marigoldTex above)
+  function marigoldBgTex(){
     var w=720,h=1560,cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d'), cx=w/2;
     var base=g.createLinearGradient(0,0,0,h);
     base.addColorStop(0,'#7a2e22'); base.addColorStop(0.4,'#b8542c'); base.addColorStop(0.72,'#d98a44'); base.addColorStop(1,'#6e2f20');
@@ -621,7 +640,7 @@
   // Green (index 0, DEFAULT) = null background → the transparent WebGL clear lets the
   // CSS teal/sage gradient show. The rest are canvas-painted full-frame backgrounds.
   var BGS = [ {n:'Green', f:null}, {n:'Temple', f:templeInteriorTex},
-              {n:'Golden Shrine', f:goldenShrineTex}, {n:'Marigold', f:marigoldTex},
+              {n:'Golden Shrine', f:goldenShrineTex}, {n:'Marigold', f:marigoldBgTex},
               {n:'Floral Mandala', f:mandalaTex}, {n:'Cosmic', f:cosmicTex}, {n:'Sunrise', f:sunriseTex} ];
   var MODELS = [ {n:'Ganesha (default)', u:null, yaw:-Math.PI/2},
                  {n:'Hanuman (stone)', u:'models/hanuman.glb', yaw:0},
@@ -631,14 +650,36 @@
   function applyBg(i){ var o=scene.background; scene.background = BGS[i].f ? BGS[i].f() : null;
     if(o && o.dispose && o!==scene.background) o.dispose(); }   // free the previous bg texture
   function applyModel(i){ var m=MODELS[i]; idolYaw=m.yaw; var u=m.u?(BASE+m.u):defaultMurtiUrl; if(u) loadMurti(u); }
+  var curBg=0, curModel=0;
+  function shortDeity(n){ return n.replace(/\s*\(.*\)\s*/,''); }   // "Ganesha (default)" → "Ganesha"
+  function refreshTriggers(){
+    var tb=document.getElementById('trigBg'), tm=document.getElementById('trigModel');
+    if(tb) tb.textContent='Scene: '+BGS[curBg].n;
+    if(tm) tm.textContent='Deity: '+shortDeity(MODELS[curModel].n);
+  }
+  function openSheet(kind){
+    var items = kind==='bg'?BGS:MODELS, cur = kind==='bg'?curBg:curModel;
+    var list=document.getElementById('sheetList'); list.innerHTML='';
+    document.getElementById('sheetTitle').textContent = kind==='bg'?'Choose scene':'Choose deity';
+    for(var i=0;i<items.length;i++){ (function(idx){
+      var row=document.createElement('div'); row.className='sheetrow'+(idx===cur?' sel':'');
+      var nm=document.createElement('span'); nm.textContent=items[idx].n; row.appendChild(nm);
+      if(idx===cur){ var tk=document.createElement('span'); tk.className='tick'; tk.textContent='✓'; row.appendChild(tk); }
+      row.onclick=function(){ if(kind==='bg'){ curBg=idx; applyBg(idx); } else { curModel=idx; applyModel(idx); } refreshTriggers(); closeSheet(); };
+      list.appendChild(row);
+    })(i); }
+    document.getElementById('sheet').classList.add('open');
+  }
+  function closeSheet(){ var s=document.getElementById('sheet'); if(s) s.classList.remove('open'); }
+  // hide/show the dev toolbar together with the app chrome (Flutter sends this)
+  function setDevVisible(v){ var d=document.getElementById('dev'); if(d) d.style.display = v?'flex':'none'; if(!v) closeSheet(); }
   function wireDev(){
-    var sb=document.getElementById('selBg'), sm=document.getElementById('selModel');
-    if(!sb||!sm) return;
-    for(var i=0;i<BGS.length;i++){ var o=document.createElement('option'); o.value=i; o.textContent=BGS[i].n; sb.appendChild(o); }
-    for(var j=0;j<MODELS.length;j++){ var p=document.createElement('option'); p.value=j; p.textContent=MODELS[j].n; sm.appendChild(p); }
-    sb.value='0'; sm.value='0';                                  // Green + Ganesha default
-    sb.onchange=function(){ applyBg(parseInt(sb.value,10)); };
-    sm.onchange=function(){ applyModel(parseInt(sm.value,10)); };
+    var tb=document.getElementById('trigBg'), tm=document.getElementById('trigModel'), sc=document.getElementById('sheetScrim');
+    if(!tb||!tm) return;
+    tb.onclick=function(){ openSheet('bg'); };
+    tm.onclick=function(){ openSheet('model'); };
+    if(sc) sc.onclick=closeSheet;
+    refreshTriggers();
   }
 
   if(document.readyState!=='loading') setTimeout(init,0); else window.addEventListener('DOMContentLoaded',init);
