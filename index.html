@@ -53,6 +53,7 @@
   var scene, camera, renderer, controls, clock, pmrem, gltfLoader;
   var idol, halo, niche, keyLight, spotLight, ambLight;
   var diyas = [], flames = [], petals = [], flowerProto = null, flowerFallback = false, flowerTexes = null, petalTexes = null;
+  var propsPlaced = false;   // addProps is idempotent — PERFORM AGAIN reuses the placed props (no re-append/stacking)
   var aartiLamp = null, aartiActive = false;
   var showering = false, paused = false;
   var frames = 0, _fpsT0 = 0, fpsReported = false, _lw = 0, _lh = 0;
@@ -80,6 +81,7 @@
         case 'cue': onCue(p.propType, !!p.on); break;
         case 'setOrbitEnabled': if(controls){ controls.enableRotate = !!p.enabled; controls.enableZoom = !!p.enabled; } break;
         case 'resetView': resetView(); break;
+        case 'resetScene': resetScene(); break;
         case 'pause': paused = true; break;
         case 'resume': paused = false; break;
         default: break;
@@ -92,6 +94,17 @@
   // Reset the user's orbit back to the framed front view (saveState captured the
   // configured camera+target at init). Driven by the app's top-right reset button.
   function resetView(){ if(controls){ controls.reset(); } }
+
+  // Settle the scene when the pooja ends (app sends this on completion): stop the
+  // circling aarti + flower shower, clear any falling petals, and reframe the
+  // camera. The diyas stay lit (auspicious, per design); props are NOT torn down
+  // so PERFORM AGAIN just re-cues them.
+  function resetScene(){
+    aartiActive = false; showering = false;
+    for(var i=0;i<petals.length;i++){ if(petals[i].o) petals[i].o.visible = false; }
+    if(aartiLamp) aartiLamp.visible = false;
+    if(controls){ controls.reset(); }
+  }
 
   //--- canvas textures (flame core, soft glow) ------------------------
   function radialTex(stops, s){ s=s||64; var c=document.createElement('canvas'); c.width=c.height=s; var g=c.getContext('2d');
@@ -191,6 +204,11 @@
   }
 
   function addProps(props){
+    // Idempotent: PERFORM AGAIN re-sends addProps, but the props are already in
+    // the scene — placing them again stacks diyas/aarti (and leaks flames), so
+    // reuse the placed set and just re-ack.
+    if(propsPlaced){ send('propsLoaded'); return; }
+    propsPlaced = true;
     var pending = props.length; if(!pending){ send('propsLoaded'); return; }
     var done = function(){ if(--pending<=0) send('propsLoaded'); };
     for(var i=0;i<props.length;i++){ (function(prop){
@@ -299,13 +317,18 @@
   //--- decoration: arched golden niche glow behind the deity ----------
   function nicheTex(){
     var w=256, h=340, cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d');
-    var cx=w/2, archR=w*0.42, bodyTop=h*0.30;
-    g.beginPath(); g.moveTo(cx-archR,h); g.lineTo(cx-archR,bodyTop);
-    g.arc(cx,bodyTop,archR,Math.PI,0); g.lineTo(cx+archR,h); g.closePath();
-    var grd=g.createRadialGradient(cx,h*0.5,10,cx,h*0.52,w*0.62);
-    grd.addColorStop(0,'rgba(255,242,208,0.96)'); grd.addColorStop(0.5,'rgba(255,201,120,0.55)'); grd.addColorStop(1,'rgba(240,150,60,0)');
-    g.fillStyle=grd; g.fill();
-    g.strokeStyle='rgba(214,164,74,0.5)'; g.lineWidth=6; g.stroke();
+    var cx=w/2, cy=h*0.42;
+    // Soft warm glow that fades to fully transparent BEFORE every texture edge —
+    // no arch clip / no stroke, so the sprite quad has no hard edge to appear as a
+    // line near the bottom of the screen. Outer radius = w/2 ⇒ alpha 0 at the side
+    // edges; top/bottom are farther, so also 0. The sprite's tall scale stretches
+    // this circular glow into the vertical niche halo behind the deity.
+    var grd=g.createRadialGradient(cx,cy,8,cx,cy,w*0.5);
+    grd.addColorStop(0,'rgba(255,242,208,0.94)');
+    grd.addColorStop(0.42,'rgba(255,201,120,0.5)');
+    grd.addColorStop(0.72,'rgba(240,150,60,0.14)');
+    grd.addColorStop(1,'rgba(240,150,60,0)');
+    g.fillStyle=grd; g.fillRect(0,0,w,h);
     return new THREE.CanvasTexture(cv);
   }
 
