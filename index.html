@@ -441,10 +441,13 @@
       // ornate temple torana/shrine backdrop — farthest back, behind the glow.
       // Camera-facing (reads in portrait); toneMapped:false keeps the warm stone
       // from being desaturated by ACES. renderOrder<0 so it draws before the glows.
+      var TEMPLE_ON = false; // TEMP DIAGNOSTIC: temple off to test device deity render
+      if(TEMPLE_ON){
       var temple=new THREE.Sprite(new THREE.SpriteMaterial({map:templeBackdropTex(),transparent:true,depthWrite:false,toneMapped:false,opacity:0.96}));
       // Sized to FRAME the deity like a shrine (not cover the frame): the arch
       // crowns the head, pillars flank the body, teal ground shows around it.
       temple.scale.set(2.7,5.63,1); temple.position.set(0,0.5,-2.6); temple.renderOrder=-10; scene.add(temple);
+      }
 
       // arched niche glow (warm sanctum light) — camera-facing, so it reads in portrait
       niche=new THREE.Sprite(new THREE.SpriteMaterial({map:nicheTex(),transparent:true,depthWrite:false,opacity:0.9}));
