@@ -669,8 +669,12 @@
       list.appendChild(row);
     })(i); }
     document.getElementById('sheet').classList.add('open');
+    send('devSheet', {open:true});   // Flutter hides its chrome so it doesn't float over the sheet
   }
-  function closeSheet(){ var s=document.getElementById('sheet'); if(s) s.classList.remove('open'); }
+  function closeSheet(){ var s=document.getElementById('sheet');
+    var wasOpen = s && s.classList.contains('open');
+    if(s) s.classList.remove('open');
+    if(wasOpen) send('devSheet', {open:false}); }
   // hide/show the dev toolbar together with the app chrome (Flutter sends this)
   function setDevVisible(v){ var d=document.getElementById('dev'); if(d) d.style.display = v?'flex':'none'; if(!v) closeSheet(); }
   function wireDev(){
