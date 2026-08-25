@@ -25,6 +25,12 @@
     #err { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
       color: #fff; font-family: -apple-system, Roboto, sans-serif; font-size: 14px; padding: 24px;
       text-align: center; background: rgba(60,25,5,0.62); z-index: 5; }
+    /* experimental dev controls (bg + model cyclers), left edge */
+    #dev { position: fixed; left: 8px; top: 50%; transform: translateY(-50%);
+      z-index: 4; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+    .devb { pointer-events: auto; font-family: -apple-system, Roboto, sans-serif; font-size: 11px;
+      font-weight: 600; color: #fff; background: rgba(18,28,24,0.60); border: 1px solid rgba(255,255,255,0.28);
+      border-radius: 14px; padding: 7px 11px; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -33,6 +39,10 @@
   <img id="diya-right" src="diya.png" alt="" />
   <div id="vignette"></div>
   <div id="err"></div>
+  <div id="dev">
+    <button id="btnBg" class="devb">BG: Temple</button>
+    <button id="btnModel" class="devb">Deity: Default</button>
+  </div>
 
   <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/controls/OrbitControls.js"></script>
@@ -52,6 +62,8 @@
 
   var scene, camera, renderer, controls, clock, pmrem, gltfLoader;
   var idol, halo, niche, keyLight, spotLight, ambLight;
+  var defaultMurtiUrl = null;         // the app-provided murti (for the "Default" dev model toggle)
+  var idolYaw = -Math.PI/2;           // per-model facing (backend Ganesha's front is +X → -90°)
   var diyas = [], flames = [], petals = [], flowerProto = null, flowerFallback = false, flowerTexes = null, petalTexes = null;
   var propsPlaced = false;   // addProps is idempotent — PERFORM AGAIN reuses the placed props (no re-append/stacking)
   var aartiLamp = null, aartiActive = false;
@@ -193,6 +205,7 @@
   function loadMurti(url){
     var eo=document.getElementById('err'); eo.style.display='none'; eo.textContent='';   // clear a prior error so a retry isn't hidden
     if(!url){ fail('loadMurti: missing url'); return; }
+    if(!defaultMurtiUrl) defaultMurtiUrl = url;   // remember the app's murti for the dev "Default" toggle
     gltfLoader.load(url, function(g){
       if(idol){ scene.remove(idol); disposeObject(idol); }                                 // free the previous idol's GPU resources
       idol=g.scene;
@@ -402,6 +415,36 @@
     var t=new THREE.CanvasTexture(cv); t.encoding=THREE.sRGBEncoding; return t;
   }
 
+  //--- experimental background: cosmic night sky (nebula + stars + divine glow)
+  function cosmicTex(){
+    var w=720, h=1560, cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d'), cx=w/2;
+    var bg=g.createLinearGradient(0,0,0,h);
+    bg.addColorStop(0,'#080b22'); bg.addColorStop(0.5,'#131a3c'); bg.addColorStop(1,'#05060f');
+    g.fillStyle=bg; g.fillRect(0,0,w,h);
+    var neb=g.createRadialGradient(cx,h*0.44,20,cx,h*0.5,w*0.75);
+    neb.addColorStop(0,'rgba(122,92,206,0.34)'); neb.addColorStop(0.5,'rgba(58,48,140,0.16)'); neb.addColorStop(1,'rgba(20,20,60,0)');
+    g.fillStyle=neb; g.fillRect(0,0,w,h);
+    for(var i=0;i<230;i++){ var x=Math.random()*w, y=Math.random()*h, r=Math.random()*1.5+0.3;
+      g.fillStyle='rgba(255,255,255,'+(0.35+Math.random()*0.6).toFixed(2)+')'; g.beginPath(); g.arc(x,y,r,0,7); g.fill(); }
+    var glow=g.createRadialGradient(cx,h*0.42,10,cx,h*0.46,w*0.45);
+    glow.addColorStop(0,'rgba(255,226,172,0.5)'); glow.addColorStop(0.5,'rgba(255,200,120,0.2)'); glow.addColorStop(1,'rgba(255,190,110,0)');
+    g.fillStyle=glow; g.fillRect(0,0,w,h);
+    var t=new THREE.CanvasTexture(cv); t.encoding=THREE.sRGBEncoding; return t;
+  }
+
+  //--- experimental background: soft sunrise sky (warm dawn + sun glow)
+  function sunriseTex(){
+    var w=720, h=1560, cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d'), cx=w/2;
+    var bg=g.createLinearGradient(0,0,0,h);
+    bg.addColorStop(0,'#5b7fb0'); bg.addColorStop(0.34,'#a98bb0'); bg.addColorStop(0.56,'#e0a06a');
+    bg.addColorStop(0.76,'#f6c47e'); bg.addColorStop(1,'#f4dca6');
+    g.fillStyle=bg; g.fillRect(0,0,w,h);
+    var sun=g.createRadialGradient(cx,h*0.52,10,cx,h*0.54,w*0.62);
+    sun.addColorStop(0,'rgba(255,246,214,0.9)'); sun.addColorStop(0.4,'rgba(255,214,146,0.42)'); sun.addColorStop(1,'rgba(255,205,130,0)');
+    g.fillStyle=sun; g.fillRect(0,0,w,h);
+    var t=new THREE.CanvasTexture(cv); t.encoding=THREE.sRGBEncoding; return t;
+  }
+
   //--- lifecycle ------------------------------------------------------
   function init(){
     if(typeof THREE==='undefined'){ fail('three.js failed to load'); return; }
@@ -479,6 +522,8 @@
       var q=new URLSearchParams(location.search); var mu=q.get('murti');
       if(mu){ loadMurti(mu); flowerFallback=true; showering=true;
         addProps([{type:'lamp',url:'props/lamp.glb'}]); setTimeout(function(){ aartiActive=true; }, 400); }
+
+      wireDev();   // attach the experimental bg/model cycler buttons
     }catch(e){ fail(e&&e.message?e.message:e); }
   }
 
@@ -490,7 +535,7 @@
     var dt=clock?Math.min(clock.getDelta(),0.05):0.016; var t=performance.now()*0.001;
     if(!paused){
       if(controls) controls.update();
-      if(idol) idol.rotation.y=-Math.PI/2+Math.sin(t*0.45)*0.2;   // front-facing gentle sway (per-model orientation may need tuning)
+      if(idol) idol.rotation.y=idolYaw+Math.sin(t*0.45)*0.2;   // front-facing gentle sway (idolYaw = per-model facing)
       updateFlames(t); updateDiyas(t); updateAarti(t);
       if(showering){ ensurePetalPool(); if(Math.random()<dt*30) spawnPetal(); }
       updatePetals(dt);
@@ -498,6 +543,30 @@
     }
     if(renderer&&scene&&camera) renderer.render(scene,camera);
     if(!fpsReported){ if(!_fpsT0) _fpsT0=performance.now(); frames++; var _el=(performance.now()-_fpsT0)/1000; if(_el>2){ fpsReported=true; send('fpsReport',{avg:Math.round(frames/_el)}); } }
+  }
+
+  // --- experimental dev controls: cycle the background + the deity model ---
+  // Background factories (null = the CSS teal/green gradient showing through the
+  // transparent WebGL clear). Model urls are relative to the scene host.
+  var BASE = location.pathname.replace(/[^/]*$/, '');
+  var BGS = [ {n:'Green', f:null}, {n:'Temple', f:templeInteriorTex},
+              {n:'Cosmic', f:cosmicTex}, {n:'Sunrise', f:sunriseTex} ];
+  var bgIdx = 1;   // init() sets the temple interior
+  var MODELS = [ {n:'Default', u:null, yaw:-Math.PI/2},
+                 {n:'Hanuman', u:'models/hanuman.glb', yaw:0},
+                 {n:'ShivLing', u:'models/shivling.glb', yaw:0},
+                 {n:'Nataraja', u:'models/nataraja.glb', yaw:0} ];
+  var modelIdx = 0;
+  function wireDev(){
+    var b1=document.getElementById('btnBg'), b2=document.getElementById('btnModel');
+    if(!b1||!b2) return;
+    b1.onclick=function(){ bgIdx=(bgIdx+1)%BGS.length; var o=scene.background;
+      scene.background = BGS[bgIdx].f ? BGS[bgIdx].f() : null;
+      if(o && o.dispose && o!==scene.background) o.dispose();   // free the previous bg texture
+      b1.textContent='BG: '+BGS[bgIdx].n; };
+    b2.onclick=function(){ modelIdx=(modelIdx+1)%MODELS.length; var m=MODELS[modelIdx];
+      idolYaw=m.yaw; var u=m.u?(BASE+m.u):defaultMurtiUrl; if(u) loadMurti(u);
+      b2.textContent='Deity: '+m.n; };
   }
 
   if(document.readyState!=='loading') setTimeout(init,0); else window.addEventListener('DOMContentLoaded',init);
