@@ -332,78 +332,72 @@
     return new THREE.CanvasTexture(cv);
   }
 
-  //--- decoration: ornate temple torana/shrine backdrop behind the deity.
-  //    Camera-facing sprite; every element fades to transparent before the canvas
-  //    edge (destination-out mask below) so the teal ground shows through the
-  //    margins and the sprite quad has no hard edge/line. Pillars are inset to the
-  //    central ~64% so they stay on-screen in the narrow portrait FOV.
-  function templeBackdropTex(){
-    var w=768, h=1600, cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d');
-    var cx=w/2;
-    var STONE='#b58c4c', STONE_D='#775828', STONE_L='#e2c07c', GOLD='#eccf90', LINE='rgba(56,40,16,0.5)';
-    var pw=78, plTop=678, plBot=1288, lx=cx-232, rx=cx+232;
+  //--- temple INTERIOR backdrop (used as scene.background so it fills the frame
+  //    and the deity stands INSIDE the temple — no arch framing / occlusion).
+  //    A softly-lit warm sanctum: stone walls, side pillars, floor, a warm glow
+  //    behind the deity, and a little decoration (toran garland + hanging bells).
+  //    Kept dim + low-contrast so the spotlit deity pops against it.
+  function templeInteriorTex(){
+    var w=720, h=1560, cv=document.createElement('canvas'); cv.width=w; cv.height=h; var g=cv.getContext('2d');
+    var cx=w/2, floorY=Math.round(h*0.75), GOLD='#d8b46a', BRASS='#c9a24a';
 
-    function column(x, top, bot){
+    // walls — warm sandstone, darker top/bottom, lit through the middle
+    var wall=g.createLinearGradient(0,0,0,h);
+    wall.addColorStop(0,'#2c2013'); wall.addColorStop(0.32,'#584125');
+    wall.addColorStop(0.60,'#674d2c'); wall.addColorStop(0.80,'#5a4327'); wall.addColorStop(1,'#382918');
+    g.fillStyle=wall; g.fillRect(0,0,w,h);
+
+    // faint recessed wall panels (subtle carving) flanking the centre
+    function panel(x,y,pw,ph){ g.fillStyle='rgba(28,19,9,0.30)'; g.fillRect(x,y,pw,ph);
+      g.fillStyle='rgba(184,148,88,0.13)'; g.fillRect(x+4,y+4,pw-8,ph-8); }
+    panel(128,560,78,150); panel(128,758,78,150);
+    panel(w-206,560,78,150); panel(w-206,758,78,150);
+
+    // warm sanctum glow behind the deity
+    var glow=g.createRadialGradient(cx,h*0.42,16,cx,h*0.47,w*0.62);
+    glow.addColorStop(0,'rgba(255,228,172,0.72)'); glow.addColorStop(0.40,'rgba(242,196,124,0.34)');
+    glow.addColorStop(1,'rgba(240,185,112,0)');
+    g.fillStyle=glow; g.fillRect(0,0,w,h);
+
+    // floor — warm stone, a wall seam, and a few receding lines for depth
+    var fl=g.createLinearGradient(0,floorY,0,h);
+    fl.addColorStop(0,'#75562f'); fl.addColorStop(1,'#43301b');
+    g.fillStyle=fl; g.fillRect(0,floorY,w,h-floorY);
+    g.fillStyle='rgba(216,180,106,0.35)'; g.fillRect(0,floorY-3,w,4);
+    g.strokeStyle='rgba(34,24,12,0.4)'; g.lineWidth=2;
+    for(var i=1;i<=3;i++){ var yy=floorY+(h-floorY)*(i*i/12); g.beginPath(); g.moveTo(0,yy); g.lineTo(w,yy); g.stroke(); }
+
+    // side pillars near the edges (capital, base, grooves)
+    function pillar(x,pw,top,bot){
       var lg=g.createLinearGradient(x-pw/2,0,x+pw/2,0);
-      lg.addColorStop(0,STONE_D); lg.addColorStop(0.42,STONE_L); lg.addColorStop(0.6,STONE_L); lg.addColorStop(1,STONE_D);
-      g.fillStyle=lg; g.fillRect(x-pw/2, top, pw, bot-top);
-      g.fillStyle=LINE; for(var by=top+48; by<bot-30; by+=88){ g.fillRect(x-pw/2, by, pw, 5); } // fluting bands
-      g.fillStyle=STONE_L; g.fillRect(x-pw*0.92, top-26, pw*1.84, 26);       // capital
-      g.fillStyle=STONE;   g.fillRect(x-pw*0.74, top-50, pw*1.48, 24);
-      g.fillStyle=GOLD;    g.fillRect(x-pw*0.92, top-30, pw*1.84, 4);
-      g.fillStyle=STONE;   g.fillRect(x-pw*0.92, bot, pw*1.84, 30);          // base
-      g.fillStyle=STONE_D; g.fillRect(x-pw*1.02, bot+30, pw*2.04, 20);
+      lg.addColorStop(0,'#3f2e1b'); lg.addColorStop(0.5,'#9a7440'); lg.addColorStop(1,'#3f2e1b');
+      g.fillStyle=lg; g.fillRect(x-pw/2,top,pw,bot-top);
+      g.fillStyle='rgba(34,24,12,0.4)'; for(var by=top+34;by<bot-20;by+=64){ g.fillRect(x-pw/2,by,pw,4); }
+      g.fillStyle='#7a5a32'; g.fillRect(x-pw*0.8,top-26,pw*1.6,26); g.fillRect(x-pw*0.8,bot,pw*1.6,28);
+      g.fillStyle=GOLD; g.fillRect(x-pw*0.8,top-28,pw*1.6,3);
     }
-    column(lx, plTop, plBot);
-    column(rx, plTop, plBot);
+    pillar(58,96,455,floorY); pillar(w-58,96,455,floorY);
 
-    // lintel beam across the capitals
-    g.fillStyle=STONE; g.fillRect(lx-pw*0.95, plTop-72, (rx-lx)+pw*1.9, 36);
-    g.fillStyle=GOLD;  g.fillRect(lx-pw*0.95, plTop-74, (rx-lx)+pw*1.9, 4);
-    g.fillStyle=LINE;  g.fillRect(lx-pw*0.95, plTop-40, (rx-lx)+pw*1.9, 4);
+    // top decoration: a carved lintel, a floral toran garland, two hanging bells
+    g.fillStyle='#6b4f2d'; g.fillRect(30,404,w-60,40);
+    g.fillStyle=GOLD; g.fillRect(30,404,w-60,4);
+    g.fillStyle='rgba(34,24,12,0.4)'; g.fillRect(30,440,w-60,4);
+    var segs=9, x0=60, x1=w-60, sw=(x1-x0)/segs;
+    for(var s=0;s<segs;s++){ var sx=x0+s*sw;
+      g.strokeStyle='#3f5a28'; g.lineWidth=8; g.beginPath(); g.moveTo(sx,446); g.quadraticCurveTo(sx+sw/2,480,sx+sw,446); g.stroke();
+      g.fillStyle='#e8912e'; g.beginPath(); g.arc(sx+sw/2,476,9,0,7); g.fill();
+      g.fillStyle='#f6b64a'; g.beginPath(); g.arc(sx+sw/2,476,4,0,7); g.fill(); }
+    function bell(x,y){
+      g.strokeStyle='rgba(34,24,12,0.5)'; g.lineWidth=2; g.beginPath(); g.moveTo(x,444); g.lineTo(x,y-16); g.stroke();
+      g.fillStyle=BRASS; g.beginPath(); g.moveTo(x-14,y+24); g.quadraticCurveTo(x-16,y,x,y-6); g.quadraticCurveTo(x+16,y,x+14,y+24); g.closePath(); g.fill();
+      g.beginPath(); g.ellipse(x,y+24,14,5,0,0,7); g.fill();
+      g.fillStyle='#5a4420'; g.beginPath(); g.arc(x,y+28,3,0,7); g.fill(); }
+    bell(150,470); bell(w-150,470);
 
-    // torana arch (flattened semicircle band) springing from the lintel
-    var springY=plTop-72, vs=1.12, Ri=(rx-lx)/2+pw*0.2, Ro=Ri+42;
-    g.beginPath();
-    g.ellipse(cx, springY, Ro, Ro*vs, 0, Math.PI, 2*Math.PI, false);
-    g.lineTo(cx+Ri, springY);
-    g.ellipse(cx, springY, Ri, Ri*vs, 0, 2*Math.PI, Math.PI, true);
-    g.closePath();
-    var ag=g.createLinearGradient(0, springY-Ro*vs, 0, springY);
-    ag.addColorStop(0,STONE_L); ag.addColorStop(1,STONE_D);
-    g.fillStyle=ag; g.fill();
-    g.strokeStyle=GOLD; g.lineWidth=4; g.stroke();
-
-    // gold beads following the inner arch edge
-    var nb=18, Rb=Ri-16;
-    for(var i=0;i<=nb;i++){ var a=Math.PI+Math.PI*(i/nb);
-      var bx=cx+Math.cos(a)*Rb, by=springY+Math.sin(a)*Rb*vs;
-      g.beginPath(); g.arc(bx,by,6,0,7); g.fillStyle=GOLD; g.fill(); }
-
-    // kalasha finial above the apex
-    var apexY=springY-Ro*vs, ky=apexY-8;
-    g.fillStyle=GOLD;
-    g.fillRect(cx-30, ky-6, 60, 10);                                  // plinth
-    g.beginPath(); g.ellipse(cx, ky-26, 30, 22, 0, 0, Math.PI, true); g.fill(); // pot
-    g.beginPath(); g.moveTo(cx-30,ky-24); g.lineTo(cx+30,ky-24); g.lineTo(cx+16,ky-6); g.lineTo(cx-16,ky-6); g.closePath(); g.fill();
-    for(var r=0;r<3;r++){ var rw=22-r*6; g.fillRect(cx-rw, ky-46-r*14, rw*2, 8); } // stacked rings
-    g.beginPath(); g.moveTo(cx, ky-96); g.lineTo(cx-9, ky-70); g.lineTo(cx+9, ky-70); g.closePath(); g.fill(); // spire tip
-
-    // stepped platform at the base
-    g.fillStyle=STONE;   g.fillRect(cx-260, plBot+52, 520, 40);
-    g.fillStyle=STONE_D; g.fillRect(cx-300, plBot+92, 600, 34);
-    g.fillStyle=LINE;    g.fillRect(cx-260, plBot+52, 520, 4);
-
-    // fade EVERY edge to transparent (teal shows through; no hard sprite-quad line)
-    g.globalCompositeOperation='destination-out';
-    function fade(x0,y0,x1,y1,ax,ay){ var gr=g.createLinearGradient(x0,y0,x1,y1);
-      gr.addColorStop(0,'rgba(0,0,0,1)'); gr.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=gr;
-      g.fillRect(Math.min(x0,x1),Math.min(y0,y1),ax,ay); }
-    fade(0,0,0,h*0.13, w, h*0.13);            // top
-    fade(0,h,0,h*0.85, w, h*0.15);            // bottom
-    fade(0,0,w*0.11,0, w*0.11, h);            // left
-    fade(w,0,w*0.89,0, w*0.11, h);            // right
-    g.globalCompositeOperation='source-over';
+    // warm haze / vignette for depth
+    var vg=g.createRadialGradient(cx,h*0.46,w*0.3,cx,h*0.5,w*0.9);
+    vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(1,'rgba(18,11,4,0.55)');
+    g.fillStyle=vg; g.fillRect(0,0,w,h);
 
     var t=new THREE.CanvasTexture(cv); t.encoding=THREE.sRGBEncoding; return t;
   }
@@ -441,18 +435,16 @@
       // ornate temple torana/shrine backdrop — farthest back, behind the glow.
       // Camera-facing (reads in portrait); toneMapped:false keeps the warm stone
       // from being desaturated by ACES. renderOrder<0 so it draws before the glows.
-      var temple=new THREE.Sprite(new THREE.SpriteMaterial({map:templeBackdropTex(),transparent:true,depthWrite:false,toneMapped:false,opacity:0.96}));
-      // Sized to FRAME the deity like a shrine: pillars flank OUTSIDE the body,
-      // the arch crowns above the head (bigger than the deity so it isn't occluded
-      // by it), teal ground shows around it.
-      temple.scale.set(3.7,7.72,1); temple.position.set(0,0.72,-2.6); temple.renderOrder=-10; scene.add(temple);
+      // Temple INTERIOR as the full-frame background — the deity stands inside the
+      // temple (sanctum walls, side pillars, floor, toran + bells). Fills the frame,
+      // so no arch framing / occlusion. (Replaces the CSS teal ground for the scene.)
+      scene.background = templeInteriorTex();
 
       // arched niche glow (warm sanctum light) — camera-facing, so it reads in portrait
-      niche=new THREE.Sprite(new THREE.SpriteMaterial({map:nicheTex(),transparent:true,depthWrite:false,opacity:0.72}));
+      niche=new THREE.Sprite(new THREE.SpriteMaterial({map:nicheTex(),transparent:true,depthWrite:false,opacity:0.8}));
       niche.scale.set(5.4,7.2,1); niche.position.set(0,0.55,-1.7); scene.add(niche);
-      // tight divine halo right behind the deity (kept modest so it doesn't wash
-      // out the temple backdrop behind it)
-      halo=new THREE.Sprite(new THREE.SpriteMaterial({map:texGlow,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.42}));
+      // tight divine halo right behind the deity (blooms against the dim interior)
+      halo=new THREE.Sprite(new THREE.SpriteMaterial({map:texGlow,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0.5}));
       halo.scale.set(4.6,4.6,1); halo.position.set(0,0.85,-1.4); scene.add(halo);
 
       var base=new THREE.Mesh(new THREE.CylinderGeometry(1.15,1.35,0.35,48), new THREE.MeshStandardMaterial({color:0x5a3a1c,metalness:0.15,roughness:0.8}));
