@@ -34,11 +34,13 @@
   <div id="vignette"></div>
   <div id="err"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/build/three.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/loaders/GLTFLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/loaders/DRACOLoader.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.137.5/examples/js/loaders/RGBELoader.js"></script>
+  <!-- three.js r0.137.5 vendored locally (no external CDN): a cold-start CDN
+       fetch failure was causing "scene failed to load" on first launch. -->
+  <script src="vendor/three.min.js"></script>
+  <script src="vendor/OrbitControls.js"></script>
+  <script src="vendor/GLTFLoader.js"></script>
+  <script src="vendor/DRACOLoader.js"></script>
+  <script src="vendor/RGBELoader.js"></script>
 
   <script>
   //=====================================================================
@@ -553,7 +555,7 @@
       prim.position.y=-0.95; scene.add(prim);
 
       gltfLoader=new THREE.GLTFLoader();
-      try{ var _d=new THREE.DRACOLoader(); _d.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/'); gltfLoader.setDRACOLoader(_d); }catch(e){}
+      try{ var _d=new THREE.DRACOLoader(); _d.setDecoderPath('vendor/draco/'); gltfLoader.setDRACOLoader(_d); }catch(e){}
 
       controls=new THREE.OrbitControls(camera,renderer.domElement);
       controls.enableZoom=true; controls.minDistance=4.5; controls.maxDistance=9.5;   // pinch-zoom enabled (per design), bounded
