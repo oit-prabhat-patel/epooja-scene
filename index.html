@@ -224,7 +224,9 @@
     gltfLoader.load('props/lamp.glb',    function(g){ placeDiyas(g.scene); },   undefined, function(){});
     gltfLoader.load('props/thali.glb',   function(g){ placeAarti(g.scene); },   undefined, function(){});
     gltfLoader.load('props/incense.glb', function(g){ placeIncense(g.scene); }, undefined, function(){});
-    gltfLoader.load('props/petals.glb',  function(g){ flowerProto=g.scene; },   undefined, function(){ flowerFallback=true; });
+    // Shower = lightweight canvas-drawn petals (alphaTest, 1 draw call each), NOT
+    // clones of the 1.3MB rose GLB — those were the main lag + capped the volume.
+    flowerFallback = true;
   }
 
   // lamp → two lit diyas RESTING at the base of the pedestal, one each side,
@@ -249,7 +251,9 @@
     aartiLamp = new THREE.Group();
     var m = model.clone(true); fitInto(m, 0.5); aartiLamp.add(m);
     var light = new THREE.PointLight(0xffb050, 2.0, 5); light.position.set(0, 0.3, 0.15); aartiLamp.add(light);
-    var bb = new THREE.Box3().setFromObject(m); makeFlame(aartiLamp, 0, bb.max.y * 0.9, 0.05, 0.09);
+    // Flame sits IN the thali's central diya cup (a bit above the plate, not at the
+    // marigold-rim top) so it stays on the lamp when the thali tilts during its orbit.
+    var bb = new THREE.Box3().setFromObject(m); makeFlame(aartiLamp, 0, bb.max.y * 0.62, 0.02, 0.11);
     aartiLamp.visible = false; scene.add(aartiLamp);
   }
   // slow, dignified clockwise circle in front of the deity's face.
@@ -270,22 +274,22 @@
     if(_smokeTexCache) return _smokeTexCache;
     var c=document.createElement('canvas'); c.width=c.height=64; var g=c.getContext('2d');
     var gr=g.createRadialGradient(32,32,1,32,32,31);
-    gr.addColorStop(0,'rgba(232,232,232,0.55)'); gr.addColorStop(1,'rgba(232,232,232,0)');
+    gr.addColorStop(0,'rgba(205,210,220,0.85)'); gr.addColorStop(0.6,'rgba(205,210,220,0.28)'); gr.addColorStop(1,'rgba(205,210,220,0)');
     g.fillStyle=gr; g.beginPath(); g.arc(32,32,31,0,6.2832); g.fill();
     _smokeTexCache=new THREE.CanvasTexture(c); return _smokeTexCache;
   }
   function placeIncense(model){
-    var spots=[[-1.25,1.12],[1.25,1.12]];   // [x,z] outside the diyas, flanking the pedestal
+    var spots=[[-0.92,1.02],[0.92,1.02]];   // [x,z] just outside the diyas but kept on-screen (portrait FOV is narrow)
     var tex=smokeTex();
     for(var i=0;i<spots.length;i++){
       var grp=new THREE.Group(); grp.position.set(spots[i][0],-1.2,spots[i][1]);
-      var m=model.clone(true); fitInto(m,0.55); grp.add(m);
+      var m=model.clone(true); fitInto(m,0.44); grp.add(m);
       var top=new THREE.Box3().setFromObject(m).max.y;
       var puffs=[];
-      for(var s=0;s<5;s++){
+      for(var s=0;s<6;s++){
         var mat=new THREE.SpriteMaterial({map:tex,transparent:true,opacity:0,depthWrite:false});
         var sp=new THREE.Sprite(mat); sp.position.set(0,top,0); grp.add(sp);
-        puffs.push({o:sp,seed:s*0.6+Math.random()*0.4});
+        puffs.push({o:sp,seed:s*0.5+Math.random()*0.35});
       }
       scene.add(grp); incenses.push({top:top,puffs:puffs});
     }
@@ -294,10 +298,10 @@
     for(var i=0;i<incenses.length;i++){ var inc=incenses[i];
       for(var s=0;s<inc.puffs.length;s++){ var p=inc.puffs[s];
         var ph=((t*0.28+p.seed)%1);                 // 0..1 loop, staggered per puff
-        p.o.position.y=inc.top+ph*0.95;
-        p.o.position.x=Math.sin((t+p.seed*4)*1.1)*0.10*ph;   // drift as it rises
-        p.o.material.opacity=(ph<0.15?ph/0.15:(1-ph)/0.85)*0.3;  // fade in then out
-        var sc=0.10+ph*0.22; p.o.scale.set(sc,sc,1);
+        p.o.position.y=inc.top-0.04+ph*0.8;                   // start at the stick tips
+        p.o.position.x=Math.sin((t+p.seed*4)*1.1)*0.08*ph;   // drift as it rises
+        p.o.material.opacity=(ph<0.15?ph/0.15:(1-ph)/0.85)*0.85;  // fade in then out
+        var sc=0.16+ph*0.4; p.o.scale.set(sc,sc,1);
       }
     }
   }
@@ -319,7 +323,7 @@
     }
     if(!flowerFallback) return;
     var fl=buildFlowerTexes(), pt=buildPetalTexes();
-    for(var j=0;j<30;j++){
+    for(var j=0;j<60;j++){   // denser shower (cheap alphaTest planes)
       // toneMapped:false so ACES doesn't wash the vivid colours toward pale
       var pl;
       if(j%5<2){   // ~40% whole blooms (marigold/rose)
@@ -537,7 +541,9 @@
     try{
       var app=document.getElementById('app');
       renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+      // Cap DPR at 1.5: on high-DPR phones rendering at 2x this PBR+HDRI scene is
+      // the main lag source (pixel count = dpr^2). 1.5 ≈ 44% fewer pixels than 2x.
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.5));
       renderer.setSize(window.innerWidth,window.innerHeight);
       renderer.setClearColor(0x000000,0);
       renderer.outputEncoding=THREE.sRGBEncoding; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
@@ -624,7 +630,7 @@
       if(controls) controls.update();
       if(idol) idol.rotation.y=idolYaw+Math.sin(t*0.45)*0.2;   // front-facing gentle sway (idolYaw = per-model facing)
       updateFlames(t); updateDiyas(t); updateAarti(t); updateIncense(t);
-      if(showering){ ensurePetalPool(); if(Math.random()<dt*30) spawnPetal(); }
+      if(showering){ ensurePetalPool(); var n=3; while(n-- > 0){ if(Math.random()<dt*22) spawnPetal(); } }
       updatePetals(dt);
       if(halo) halo.material.rotation+=dt*0.04;
     }
