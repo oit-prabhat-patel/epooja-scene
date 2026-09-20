@@ -324,7 +324,14 @@
         var geo=src.geometry; geo.computeBoundingBox();
         var gs=geo.boundingBox.getSize(new THREE.Vector3()); var gmax=Math.max(gs.x,gs.y,gs.z)||1;
         petalBaseScale=0.2/gmax;                       // normalise the raw GLB petal to ~0.2 units
-        if(src.material) src.material.side=THREE.DoubleSide;   // visible while tumbling back-on
+        if(src.material){
+          // Force OPAQUE (the GLB petal ships transparent → 40 DoubleSide instances
+          // blending = the shower's 6fps overdraw). No alphaTest: in opaque mode the
+          // texture alpha is ignored, so the solid petal geometry renders, depth-
+          // tested, with zero overdraw.
+          src.material.transparent=false; src.material.alphaTest=0;
+          src.material.depthWrite=true; src.material.side=THREE.DoubleSide;
+        }
         petalIM=new THREE.InstancedMesh(geo, src.material, PETAL_N);
         petalIM.frustumCulled=false; petalIM.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         _pdummy=new THREE.Object3D();
