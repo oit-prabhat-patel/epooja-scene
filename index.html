@@ -328,7 +328,7 @@
       var pl;
       if(j%5<2){   // ~40% whole blooms (marigold/rose)
         var sz=0.36+Math.random()*0.12;
-        var mf=new THREE.MeshBasicMaterial({map:fl[j%fl.length],transparent:true,alphaTest:0.35,side:THREE.DoubleSide,toneMapped:false});
+        var mf=new THREE.MeshBasicMaterial({map:fl[j%fl.length],transparent:true,alphaTest:0.3,side:THREE.DoubleSide,toneMapped:false});
         pl=new THREE.Mesh(new THREE.PlaneGeometry(sz,sz),mf);
       } else {     // ~60% loose petals (as in the original demo)
         var pw=0.13+Math.random()*0.05;
@@ -540,10 +540,11 @@
     if(typeof THREE==='undefined'){ fail('three.js failed to load'); return; }
     try{
       var app=document.getElementById('app');
-      renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-      // Cap DPR at 1.5: on high-DPR phones rendering at 2x this PBR+HDRI scene is
-      // the main lag source (pixel count = dpr^2). 1.5 ≈ 44% fewer pixels than 2x.
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.5));
+      // This PBR + HDRI + heavy-transparency scene is fill-rate bound on mid phones.
+      // Render at DPR 1 (native-res on tablets, upscaled on high-DPR phones) and
+      // drop MSAA — together the biggest FPS levers (pixel cost scales with dpr^2).
+      renderer=new THREE.WebGLRenderer({antialias:false,alpha:true});
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,1.0));
       renderer.setSize(window.innerWidth,window.innerHeight);
       renderer.setClearColor(0x000000,0);
       renderer.outputEncoding=THREE.sRGBEncoding; renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.0;
