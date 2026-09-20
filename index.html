@@ -58,6 +58,7 @@
   var defaultMurtiYaw = 0;            // the app-supplied facing (deg) for that "Default" toggle
   var idolYaw = 0;                    // current per-model facing (radians); set from the backend-supplied yaw in loadMurti (no hardcoded default — each model's facing comes from the backend)
   var diyas = [], flames = [], petals = [], flowerProto = null, flowerFallback = false, flowerTexes = null, petalTexes = null;
+  var petalIM = null, imState = [], petalBaseScale = 0.16, _pdummy = null;   // GLB petal shower via one InstancedMesh (1 draw call, opaque)
   var incenses = [];         // {smoke:[{o,seed}...]} — two burners flanking the pedestal
   var propsPlaced = false;   // addProps is idempotent — PERFORM AGAIN reuses the placed props (no re-append/stacking)
   var aartiLamp = null, aartiActive = false;
@@ -224,9 +225,10 @@
     gltfLoader.load('props/lamp.glb',    function(g){ placeDiyas(g.scene); },   undefined, function(){});
     gltfLoader.load('props/thali.glb',   function(g){ placeAarti(g.scene); },   undefined, function(){});
     gltfLoader.load('props/incense.glb', function(g){ placeIncense(g.scene); }, undefined, function(){});
-    // Shower = lightweight canvas-drawn petals (alphaTest, 1 draw call each), NOT
-    // clones of the 1.3MB rose GLB — those were the main lag + capped the volume.
-    flowerFallback = true;
+    // Shower = the real rose-petal GLB, drawn as ONE InstancedMesh (see
+    // ensurePetalPool) — all petals in a single opaque draw call, so the 3D asset
+    // is kept without the per-clone lag. Canvas petals only if the GLB 404s.
+    gltfLoader.load('props/petals.glb', function(g){ flowerProto=g.scene; }, undefined, function(){ flowerFallback=true; });
   }
 
   // lamp → two lit diyas RESTING at the base of the pedestal, one each side,
@@ -237,23 +239,20 @@
     for(var i=0;i<spots.length;i++){ var grp=new THREE.Group(); grp.position.set(spots[i][0],-1.2,spots[i][1]);
       var m=model.clone(true);
       m.traverse(function(o){ if(o.name && /flame|wick|fire|agni/i.test(o.name)) o.visible=false; }); // drop the GLB's own flame; we add one
-      fitInto(m,0.46); grp.add(m);
+      fitInto(m,0.37); grp.add(m);   // ~20% smaller than before
       var light=new THREE.PointLight(0xffa542,1.7,4.5); light.position.set(0,0.28,0.12); grp.add(light);
       var bb=new THREE.Box3().setFromObject(m); makeFlame(grp,0,bb.max.y*0.86,0.02,0.07);
       scene.add(grp); diyas.push({grp:grp,light:light,seed:Math.random()*10}); }
   }
   function updateDiyas(t){ for(var i=0;i<diyas.length;i++){ var d=diyas[i]; d.light.intensity=1.4+Math.sin(t*11+d.seed)*0.4+Math.sin(t*27+d.seed)*0.2; } }
 
-  // lamp → also the aarti: a lit thali (aarti_thali.glb has no usable flame, so
-  // it rides beneath a standalone flame) that circles the murti's face while the
-  // lamp cue is active. Hidden until the cue turns it on.
+  // lamp → also the aarti: the lit thali (aarti_thali.glb) circles the murti's face
+  // while the lamp cue is active. No standalone flame — just the model + a warm
+  // point light so it reads as offered/lit. Hidden until the cue turns it on.
   function placeAarti(model){
     aartiLamp = new THREE.Group();
     var m = model.clone(true); fitInto(m, 0.5); aartiLamp.add(m);
     var light = new THREE.PointLight(0xffb050, 2.0, 5); light.position.set(0, 0.3, 0.15); aartiLamp.add(light);
-    // Flame sits IN the thali's central diya cup (a bit above the plate, not at the
-    // marigold-rim top) so it stays on the lamp when the thali tilts during its orbit.
-    var bb = new THREE.Box3().setFromObject(m); makeFlame(aartiLamp, 0, bb.max.y * 0.62, 0.02, 0.11);
     aartiLamp.visible = false; scene.add(aartiLamp);
   }
   // slow, dignified clockwise circle in front of the deity's face.
@@ -279,11 +278,11 @@
     _smokeTexCache=new THREE.CanvasTexture(c); return _smokeTexCache;
   }
   function placeIncense(model){
-    var spots=[[-0.92,1.02],[0.92,1.02]];   // [x,z] just outside the diyas but kept on-screen (portrait FOV is narrow)
+    var spots=[[-0.6,0.62],[0.6,0.62]];   // [x,z] ON the pedestal top, at the front flanking the statue's feet
     var tex=smokeTex();
     for(var i=0;i<spots.length;i++){
-      var grp=new THREE.Group(); grp.position.set(spots[i][0],-1.2,spots[i][1]);
-      var m=model.clone(true); fitInto(m,0.44); grp.add(m);
+      var grp=new THREE.Group(); grp.position.set(spots[i][0],-0.55,spots[i][1]);   // y = pedestal top (feet), not the ground
+      var m=model.clone(true); fitInto(m,0.4); grp.add(m);
       var top=new THREE.Box3().setFromObject(m).max.y;
       var puffs=[];
       for(var s=0;s<6;s++){
@@ -313,17 +312,30 @@
     if(propType==='lamp'){ aartiActive = on; }
   }
 
-  // flower shower — clones of the real flower GLB when available, else a pool of
-  // vivid canvas-drawn marigold/rose planes that tumble as they fall.
+  // flower shower — the real rose-petal GLB rendered as ONE InstancedMesh (opaque,
+  // a single draw call → the 3D asset without the per-clone lag). Canvas planes are
+  // only a fallback if the GLB fails to load.
+  var PETAL_N = 40;
   function ensurePetalPool(){
-    if(petals.length) return;
+    if(petalIM || petals.length) return;
     if(flowerProto){
-      for(var i=0;i<16;i++){ var m=flowerProto.clone(true); fitInto(m,0.16); m.visible=false; scene.add(m); petals.push(mkPetal(m)); }
-      return;
+      var src=null; flowerProto.traverse(function(o){ if(!src && o.isMesh) src=o; });
+      if(src){
+        var geo=src.geometry; geo.computeBoundingBox();
+        var gs=geo.boundingBox.getSize(new THREE.Vector3()); var gmax=Math.max(gs.x,gs.y,gs.z)||1;
+        petalBaseScale=0.2/gmax;                       // normalise the raw GLB petal to ~0.2 units
+        if(src.material) src.material.side=THREE.DoubleSide;   // visible while tumbling back-on
+        petalIM=new THREE.InstancedMesh(geo, src.material, PETAL_N);
+        petalIM.frustumCulled=false; petalIM.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        _pdummy=new THREE.Object3D();
+        for(var i=0;i<PETAL_N;i++){ imState.push({active:false}); _hideInstance(i); }
+        petalIM.instanceMatrix.needsUpdate=true; scene.add(petalIM);
+        return;
+      }
     }
     if(!flowerFallback) return;
     var fl=buildFlowerTexes(), pt=buildPetalTexes();
-    for(var j=0;j<60;j++){   // denser shower (cheap alphaTest planes)
+    for(var j=0;j<PETAL_N;j++){
       // toneMapped:false so ACES doesn't wash the vivid colours toward pale
       var pl;
       if(j%5<2){   // ~40% whole blooms (marigold/rose)
@@ -338,14 +350,29 @@
       pl.visible=false; scene.add(pl); petals.push(mkPetal(pl));
     }
   }
+  function _hideInstance(i){ _pdummy.position.set(0,-999,0); _pdummy.rotation.set(0,0,0); _pdummy.scale.setScalar(0); _pdummy.updateMatrix(); petalIM.setMatrixAt(i,_pdummy.matrix); }
   function mkPetal(o){ return {o:o,vy:0,sway:Math.random()*6.28,sp:0.5+Math.random(),spin:(Math.random()-0.5)*2.4}; }
-  function spawnPetal(){ for(var i=0;i<petals.length;i++){ var p=petals[i]; if(!p.o.visible){
-    p.o.position.set((Math.random()-0.5)*3.4,3.3+Math.random()*1.1,(Math.random()-0.5)*1.5);
-    p.vy=0.7+Math.random()*0.7; p.o.visible=true; return; } } }
-  function updatePetals(dt){ for(var i=0;i<petals.length;i++){ var p=petals[i]; if(!p.o.visible) continue;
-    p.sway+=dt*p.sp; p.o.position.y-=p.vy*dt; p.o.position.x+=Math.sin(p.sway)*dt*0.5;
-    p.o.rotation.z+=p.spin*dt; p.o.rotation.x+=p.spin*0.55*dt;   // tumble like a real falling flower
-    if(p.o.position.y<-2.7) p.o.visible=false; } }
+  function spawnPetal(){
+    if(petalIM){ for(var i=0;i<imState.length;i++){ var s=imState[i]; if(!s.active){
+      s.active=true; s.x=(Math.random()-0.5)*3.4; s.y=3.3+Math.random()*1.1; s.z=(Math.random()-0.5)*1.5;
+      s.vy=0.7+Math.random()*0.7; s.sway=Math.random()*6.28; s.sp=0.5+Math.random();
+      s.rx=Math.random()*6.28; s.ry=Math.random()*6.28; s.rz=Math.random()*6.28;
+      s.spin=(Math.random()-0.5)*2.4; s.scale=petalBaseScale*(0.8+Math.random()*0.6); return; } } return; }
+    for(var k=0;k<petals.length;k++){ var p=petals[k]; if(!p.o.visible){
+      p.o.position.set((Math.random()-0.5)*3.4,3.3+Math.random()*1.1,(Math.random()-0.5)*1.5);
+      p.vy=0.7+Math.random()*0.7; p.o.visible=true; return; } }
+  }
+  function updatePetals(dt){
+    if(petalIM){ for(var i=0;i<imState.length;i++){ var s=imState[i]; if(!s.active) continue;
+      s.sway+=dt*s.sp; s.y-=s.vy*dt; s.x+=Math.sin(s.sway)*dt*0.5; s.rz+=s.spin*dt; s.rx+=s.spin*0.55*dt;
+      if(s.y<-2.7){ s.active=false; _hideInstance(i); continue; }
+      _pdummy.position.set(s.x,s.y,s.z); _pdummy.rotation.set(s.rx,s.ry,s.rz); _pdummy.scale.setScalar(s.scale); _pdummy.updateMatrix(); petalIM.setMatrixAt(i,_pdummy.matrix);
+    } petalIM.instanceMatrix.needsUpdate=true; return; }
+    for(var k=0;k<petals.length;k++){ var p=petals[k]; if(!p.o.visible) continue;
+      p.sway+=dt*p.sp; p.o.position.y-=p.vy*dt; p.o.position.x+=Math.sin(p.sway)*dt*0.5;
+      p.o.rotation.z+=p.spin*dt; p.o.rotation.x+=p.spin*0.55*dt;   // tumble like a real falling flower
+      if(p.o.position.y<-2.7) p.o.visible=false; }
+  }
 
   //--- decoration: hanging diyas are the real Figma PNG (diya.png), placed as
   //    #diya-left / #diya-right HTML overlays — no canvas drawing needed.
