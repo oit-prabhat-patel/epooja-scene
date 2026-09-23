@@ -674,16 +674,17 @@
 
   function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); }
 
-  // Cap the render loop to an even divisor of the (60Hz) display — default 30fps —
-  // so every rendered frame shows for exactly 2 vsyncs. A steady 30 looks far
-  // smoother than an uncapped ~45 whose frames map unevenly onto vsync (judder),
-  // which Flutter's platform-view compositing makes worse. ?cap= overrides.
-  var _capFps=parseFloat(new URLSearchParams(location.search).get('cap'))||30;
-  var _capMs=1000/_capFps, _lastFrameT=0, _renderN=0;   // _renderN = actual renders (the FPS meter reads this, not raw rAF)
+  // Render loop is UNCAPPED by default — smoothness now comes from the app hosting
+  // the WebView in Hybrid Composition (its own SurfaceView, presented directly in
+  // vsync like a game), not from throttling. ?cap=<fps> re-enables a frame cap
+  // (e.g. an even divisor of the display refresh) as a fallback for hosts still on
+  // the texture-layer path. cap<=0 = uncapped.
+  var _capFps=parseFloat(new URLSearchParams(location.search).get('cap'))||0;
+  var _capMs=_capFps>0?1000/_capFps:0, _lastFrameT=0, _renderN=0;   // _renderN = actual renders (the FPS meter reads this, not raw rAF)
   function animate(){
     requestAnimationFrame(animate);
     var _nowMs=performance.now();
-    if(_nowMs-_lastFrameT < _capMs-4) return;   // -4ms so a 33ms frame isn't bumped to the next vsync (→20fps)
+    if(_capMs && _nowMs-_lastFrameT < _capMs-4) return;   // throttle only when ?cap set; -4ms so a frame isn't bumped a vsync late
     _lastFrameT=_nowMs; _renderN++;
     if(renderer && window.innerHeight>0 && (window.innerWidth!==_lw || window.innerHeight!==_lh)){ _lw=window.innerWidth; _lh=window.innerHeight; onResize(); }  // self-heal 0-size canvas
     var dt=clock?Math.min(clock.getDelta(),0.05):0.016; var t=performance.now()*0.001;
