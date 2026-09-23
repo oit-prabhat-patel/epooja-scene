@@ -664,18 +664,27 @@
         var fEl=document.createElement('div');
         fEl.style.cssText='position:fixed;top:8px;left:8px;z-index:99999;font:bold 15px ui-monospace,monospace;color:#7ee787;background:rgba(0,0,0,.6);padding:5px 9px;border-radius:6px;pointer-events:none';
         document.body.appendChild(fEl);
-        var _fn=0,_ft=performance.now(),_fmin=999,_fwarm=performance.now()+2500;
-        (function floop(){ requestAnimationFrame(floop); _fn++; var e=performance.now()-_ft;
-          if(e>=500){ var f=Math.round(_fn*1000/e); if(performance.now()>_fwarm) _fmin=Math.min(_fmin,f);
-            fEl.textContent='FPS '+f+(_fmin<999?'  min '+_fmin:''); _fn=0; _ft=performance.now(); } })();
+        var _fLast=_renderN,_ft=performance.now(),_fmin=999,_fwarm=performance.now()+2500;
+        (function floop(){ requestAnimationFrame(floop); var e=performance.now()-_ft;
+          if(e>=500){ var f=Math.round((_renderN-_fLast)*1000/e); if(performance.now()>_fwarm) _fmin=Math.min(_fmin,f);
+            fEl.textContent='FPS '+f+(_fmin<999?'  min '+_fmin:''); _fLast=_renderN; _ft=performance.now(); } })();
       }
     }catch(e){ fail(e&&e.message?e.message:e); }
   }
 
   function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight); }
 
+  // Cap the render loop to an even divisor of the (60Hz) display — default 30fps —
+  // so every rendered frame shows for exactly 2 vsyncs. A steady 30 looks far
+  // smoother than an uncapped ~45 whose frames map unevenly onto vsync (judder),
+  // which Flutter's platform-view compositing makes worse. ?cap= overrides.
+  var _capFps=parseFloat(new URLSearchParams(location.search).get('cap'))||30;
+  var _capMs=1000/_capFps, _lastFrameT=0, _renderN=0;   // _renderN = actual renders (the FPS meter reads this, not raw rAF)
   function animate(){
     requestAnimationFrame(animate);
+    var _nowMs=performance.now();
+    if(_nowMs-_lastFrameT < _capMs-4) return;   // -4ms so a 33ms frame isn't bumped to the next vsync (→20fps)
+    _lastFrameT=_nowMs; _renderN++;
     if(renderer && window.innerHeight>0 && (window.innerWidth!==_lw || window.innerHeight!==_lh)){ _lw=window.innerWidth; _lh=window.innerHeight; onResize(); }  // self-heal 0-size canvas
     var dt=clock?Math.min(clock.getDelta(),0.05):0.016; var t=performance.now()*0.001;
     if(!paused){
