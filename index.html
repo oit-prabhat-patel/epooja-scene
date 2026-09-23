@@ -583,7 +583,7 @@
       // ?aa=1 forces MSAA on and ?dpr= overrides the cap, for profiling.
       var _qp=new URLSearchParams(location.search);
       renderer=new THREE.WebGLRenderer({antialias:_qp.get('aa')==='1',alpha:true});
-      var _dprCap=parseFloat(_qp.get('dpr'))||2;
+      var _dprCap=parseFloat(_qp.get('dpr'))||1.4;   // TEST: lower DPR to free fill so the loop can hold a steady 60
       renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,_dprCap));
       renderer.setSize(window.innerWidth,window.innerHeight);
       renderer.setClearColor(0x000000,0);
@@ -679,7 +679,7 @@
   // vsync like a game), not from throttling. ?cap=<fps> re-enables a frame cap
   // (e.g. an even divisor of the display refresh) as a fallback for hosts still on
   // the texture-layer path. cap<=0 = uncapped.
-  var _capFps=parseFloat(new URLSearchParams(location.search).get('cap'))||0;
+  var _capFps=parseFloat(new URLSearchParams(location.search).get('cap'))||60;   // TEST: steady 60 (even divisor of the 60/120Hz panel) for smooth pacing
   var _capMs=_capFps>0?1000/_capFps:0, _lastFrameT=0, _renderN=0;   // _renderN = actual renders (the FPS meter reads this, not raw rAF)
   function animate(){
     requestAnimationFrame(animate);
