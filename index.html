@@ -281,7 +281,7 @@
     var spots=[[-0.6,0.62],[0.6,0.62]];   // [x,z] ON the pedestal top, at the front flanking the statue's feet
     var tex=smokeTex();
     for(var i=0;i<spots.length;i++){
-      var grp=new THREE.Group(); grp.position.set(spots[i][0],-0.55,spots[i][1]);   // y = pedestal top (feet), not the ground
+      var grp=new THREE.Group(); grp.position.set(spots[i][0],-0.64,spots[i][1]);   // seated on the pedestal top at the feet (was -0.55, floated a bit high)
       var m=model.clone(true); fitInto(m,0.4); grp.add(m);
       var top=new THREE.Box3().setFromObject(m).max.y;
       var puffs=[];
